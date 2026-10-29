@@ -12,32 +12,35 @@ nxnative is not in this repository: `scripts/setup_nxnative.sh` clones it, appli
 
 | Where | What |
 |---|---|
-| `app/lib/protocol.dart` | Messages (hello, state, bye; welcome, ack, reject, kick, bye, rumble, info), validation, stick normalization, the connect screen's checks |
-| `app/lib/client.dart` | The session: hello until welcome, a 17 ms heartbeat carrying the whole state with seq numbers, ack timeout, rejoin, pause/resume, rumble and info ordering. No timers of its own: tests drive it with a fake clock |
-| `app/lib/pad_layout.dart` | Where each control is on a landscape screen, multi-touch routing (pure Dart) |
-| `app/lib/pad_screen.dart` | The pad: touch layer, tilt steering (`tilt.dart`), settings sheet, status, the game card (`GameCard`, `useText`) |
-| `app/lib/connect_screen.dart`, `scan_screen.dart`, `pairing.dart` | Connect form, QR scanner (mobile_scanner), the strict `nxmando://pair` URI parser |
-| `app/lib/native.dart` + `app/ios/Runner/AppDelegate.swift`, `app/android/.../MainActivity.kt` | The `mando/native` method channel: Core Haptics / Vibrator for game rumble, `--demo` launch argument |
-| `app/lib/demo.dart` | Offline demo transport (welcome, ack, info) |
-| `app/test/` | Protocol, client (fake clock and real loopback UDP), layout on five screens, widgets, motion |
-| `host/nxnative.patch`: `dm/host/remote_proto.h` | Pure protocol and sessions (no socket, no clock): parsing, codes and their rate limit, players over the shared slot table, release / timeout, rumble pacing, info |
-| `dm/host/remote_mac.c` / `.h` | The UDP socket and its thread, env switches `DM_REMOTE*`, hooks into the front end, `hle_hid.c` and haptics |
-| `dm/host/hle_hid.c`, `dm_input.h` | `dm_hid_player_use` / `dm_hid_seats` / `dm_hid_players`: what the game makes of each player (from `SetSupportedNpadIdType`), sent to phones as `info` |
+| `app/lib/protocol/` (`protocol.dart` exports it) | `pad_state.dart` buttons and sticks; `encode.dart` what the phone sends; `host_messages.dart` + `decode.dart` what the host sends; `validate.dart` the connect screen's checks, names, ids |
+| `app/lib/net/` (`client.dart`) | `remote_client.dart` + `remote_client_rx.dart` the session (hello, 17 ms heartbeat with seq, ack timeout, rejoin, pause/resume; no timers of its own: tests use a fake clock); `game_feed.dart` rumble, info, roster, the game's keyboard, the icon pulled in pieces; `transport.dart` UDP |
+| `app/lib/pad/` (`pad_layout.dart`) | `config.dart` layouts and presets; `layout.dart` + `placement.dart` a layout on a real screen; `layout_edit.dart` + `editor.dart` the editor's logic; `controls.dart`, `touch_router.dart` fingers → buttons and stick (any number at once; the stick hands over to a resting finger). Pure Dart |
+| `app/lib/pad/screen/` (`pad_screen.dart`) | `pad_screen.dart` the screen and its lifecycle, with parts `pad_input.dart`, `pad_motion.dart`, `pad_editing.dart`, `pad_view.dart`; `painter.dart` (repaints on touches only), `game_card.dart` + `reading_dot.dart`, `status.dart`, `edit_panel.dart`, `settings_sheet.dart`, `keyboard_prompt.dart`, `toast.dart` (messages that take no touches) |
+| `app/lib/motion/` | `steering.dart` the wheel's angle: accelerometer, fused with the gyroscope's rate about the same axis when there is one; `sensors.dart` the sensor streams, the watchdog, pause/resume |
+| `app/lib/screens/`, `app/lib/storage/` (`storage.dart`) | the connect screen (`connect_screen.dart`, `connect_form.dart`, `connect_header.dart`, `scan_screen.dart`); the kept settings (`settings.dart`) and pad preferences (`pad_prefs.dart`) |
+| `app/lib/pairing.dart`, `native.dart`, `demo.dart`, `gamer_theme.dart` | the QR's URI parser; the `mando/native` channel (Core Haptics / Vibrator, `--demo`); the offline demo; the theme |
+| `app/ios/Runner/SceneDelegate.swift` | `PadViewController`: defers the system's edge gestures and hides the home indicator while playing |
+| `app/test/` | One file per subject, each under 200 lines (`client_fakes.dart` is shared, not a test) |
+| `host/nxnative.patch`: `dm/host/remote_proto.h` and its parts | Pure protocol and sessions (no socket, no clock): `remote_types.h`, `remote_json.h`, `remote_text.h`, `remote_session.h`, `remote_feed.h` (info, roster, keyboard, icon), `remote_parse.h`, `remote_packet.h`, `remote_tick.h` |
+| `dm/host/remote_mac.c` / `.h`, `remote_front.c`, `remote_icon.c`, `remote_mac_int.h` | The UDP socket and its thread and the `DM_REMOTE*` switches; the hooks into the slots, `hle_hid.c`, haptics and the game's keyboard (`dm_remote_text_begin` / `_end`, called by `front_mac.m`); the icon's thumbnail |
+| `dm/host/hle_hid.c`, `dm_input.h` | `dm_hid_player_use` / `dm_hid_seats` / `dm_hid_players` / `dm_hid_reads`: what the game makes of each player (from `SetSupportedNpadIdType`) and how often it reads each npad, sent to phones as `info` |
 | `dm/host/front_mac.m`, `pad_slots.h` | Player slots shared by the keyboard, physical controllers and phones; Controllers menu; QR window (⌘J) |
 | `dm/host/kbd_map.h`, `controls_mac.m` | The configurable keyboard map and its window (⌘K) |
 | `dm/host/haptics_apple.m` | `dm_haptics_apple_external`: a phone-owned player's rumble goes to the Wi-Fi receiver |
-| `dm/host/tests/t_remote.c`, `t_remote_udp.c`, `t_kbd_map.c` | Host tests (`make -C dm/host/tests GAME=<id> remote`) |
+| `dm/host/tests/t_remote.c`, `t_remote_feed.c` (harness `t_remote.h`), `t_remote_udp.c`, `t_kbd_map.c` | Host tests (`make -C dm/host/tests GAME=<id> remote`) |
 | `dm/tools/remote_phone.py` | Fake phones for checking a host without one (used by `scripts/smoke_host.sh`) |
 | `docs/wifi-controllers.md` (in the patch) = `docs/protocol.md` here | The protocol, the host switches and the limits. It is the source of truth. `export_patch.sh` copies it here |
 
 ## Rules
 
+- **Every file this repository owns stays under 200 lines** (after `dart format`): the app's `lib/` and `test/`, the scripts, and the files the patch adds to nxnative (`remote_*.h`, `remote_*.c`, `t_remote*`). Split by subject when one grows: a part file or a mixin for one screen, one test file per subject. nxnative's own files that the patch touches (`front_mac.m`, `hle_hid.c`, Makefiles, docs) keep nxnative's style.
 - **No game data, ever:** no NSP/XCI, keys, title keys, RomFS, NSO/NCA, shaders, saves or dumps in this repository or the patch. Logs, title IDs, build IDs and offsets are fine. `export_patch.sh` refuses non-source paths and files over 1 MB. Keep that check.
 - **No personal signing data:** the Apple team ID lives only in `app/ios/Flutter/Signing.xcconfig`, which git ignores (`install_ios.sh` writes it). Never put `DEVELOPMENT_TEAM` back into `project.pbxproj`.
 - **Never edit `host/nxnative.patch` by hand.** Change the code in a patched nxnative checkout (`scripts/setup_nxnative.sh`), build and test it there, then run `scripts/export_patch.sh` and commit the regenerated patch with `docs/protocol.md`.
 - **Code inside the patch follows nxnative's rules** (its `AGENTS.md`). They include: English only; red log lines start with `[RED] `; fix root causes rather than working around them; prefer general mechanisms (Horizon / hid semantics) over per-game rules; never use fixed game addresses unless they are gated by build ID; new env switches go into `docs/env_switches.tsv`.
 - **Protocol changes:** they are always backward compatible. The host ignores unknown keys and old apps ignore unknown message types. A new host → phone behaviour that an old app could misread is opt-in from the phone's hello (as `"rumble":1`). Change both sides, both test suites and `docs/wifi-controllers.md` in the same change. Keep every host reply within 200 bytes (`rp_reply.text`) and every datagram within 512.
 - **The app's UI text is Spanish.** Run `dart format lib test` and keep `flutter analyze` clean.
+- **Layouts:** every preset must pass `test/layout_test.dart` on all its screens. The tilt switch, Salir and the settings button take the touches on them, so a preset never puts them in the stick zone or on a button. New parts get a `PadPart`, a `baseSize`, a place in every preset and a name in `partNames`. Lifecycle changes only pause the sensor: never turn off a choice the player made.
 - **Do not install on the user's devices, or start or stop their game, unless they ask.** `build_host.sh` and `smoke_host.sh` refuse to run while the game is open: never work around that.
 - Commit only when asked. Commit messages say what changed and why, and what was checked.
 

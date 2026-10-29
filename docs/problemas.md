@@ -19,6 +19,27 @@ El teléfono manda mensajes pero no le llega respuesta. Si en el registro **no a
 
 Para probar el Mac sin teléfono (con el juego cerrado): `scripts/smoke_host.sh`.
 
+## La inclinación "se desactiva sola"
+
+En versiones anteriores de la app pasaba por tres causas, ya corregidas:
+
+- **El interruptor estaba encima de la zona del joystick** (abajo a la izquierda) y el pulgar lo tocaba sin querer. Ahora está en el centro de abajo, y ningún diseño incluido lo pone donde llega el joystick.
+- **Los gestos del sistema la apagaban** (Centro de Control, notificaciones, alertas). Ahora solo pausan el sensor, y los bordes piden un segundo deslizamiento.
+- **Iba al revés** con el teléfono girado hacia el otro lado. Ahora gira igual en las dos posiciones horizontales.
+
+Si en un diseño tuyo pusiste el interruptor donde cae el pulgar del joystick, muévelo en **Ajustes → Personalizar botones**.
+
+## "Al estar presionando deja de funcionar"
+
+En versiones anteriores pasaba por cuatro causas, ya corregidas:
+
+- **Un gesto del sistema soltaba todos los dedos para siempre.** Al rozar un borde (la barra de inicio abajo, el Centro de Control arriba), iOS ponía la app en "inactiva" y la app olvidaba los dedos apoyados. Esos dedos ya no funcionaban hasta levantarlos. Ahora un dedo apoyado sigue contando (iOS solo cancela los que toma él), y los bordes piden un segundo deslizamiento.
+- **El aviso "Acelerómetro no disponible" tapaba la parte de abajo** (joystick, cruceta, B) durante 4 segundos. Ahora sale en el centro y no recibe toques.
+- **Al levantar el pulgar del joystick con otro dedo apoyado en su zona**, el joystick no respondía hasta soltarlo todo. Ahora ese dedo toma el joystick.
+- **Los botones Salir, Ajustes e Inclinación estaban donde caen los pulgares.** Ahora están arriba y en el centro de abajo.
+
+El mando acepta todos los dedos a la vez que el teléfono reconozca (iPhone: 5): por ejemplo joystick, A, R, ZL y B juntos.
+
 ## Otros mensajes de la app
 
 | La app dice | Qué hacer |

@@ -28,6 +28,20 @@ class DemoTransport implements Transport {
           utf8.encode(
             jsonEncode({
               'v': 1,
+              't': 'roster',
+              'sid': '0123456789abcdef',
+              'rs': 1,
+              'n1': 'keyboard',
+              'n2': 'Demo',
+            }),
+          ),
+        ),
+      );
+      Future.microtask(
+        () => receive(
+          utf8.encode(
+            jsonEncode({
+              'v': 1,
               't': 'info',
               'sid': '0123456789abcdef',
               'is': 1,
@@ -36,6 +50,7 @@ class DemoTransport implements Transport {
               'use': 'own',
               'seats': 4,
               'taken': 3,
+              'rd': 1,
             }),
           ),
         ),

@@ -49,6 +49,8 @@ Phone to host:
 | `hello` | `code` (the pairing code), `id` (8–32 of `A-Z a-z 0-9 _ -`, random per installation and kept), `name` (optional, shown in the log and the menu, cut to 32 bytes) | every 500 ms until a `welcome` or `reject`; again after a `kick` |
 | `state` | `sid`, `seq` (0–2³²−1, one more per datagram), `b` (buttons, 0–65535), `lx` `ly` `rx` `ry` (−1 to 1, y up; optional, 0), `ms` (optional: the phone's clock, echoed in acks) | 50–60 times a second, the whole state each time, changed or not: it is also the heartbeat |
 | `bye` | `sid` | leaving |
+| `text` | `sid`, `ks` (the keyboard request it answers), `text` (at most 128 bytes, UTF-8), `ok` (1 typed, 0 cancelled) | the player answered the game's keyboard (`kbd`) |
+| `icon` | `sid`, `off` (a multiple of 300) | asking for a piece of the game's icon (`info.isz` bytes, CRC `info.ih`): a few at a time, again after 400 ms without the piece |
 
 `b` has NpadButton's bits (`dm/host/dm_input.h`): A 1, B 2, X 4, Y 8, left stick press 16, right stick press 32, L 64, R 128, ZL 256, ZR 512, + 1024, − 2048, D-pad left 4096, up 8192, right 16384, down 32768.
 
@@ -61,19 +63,22 @@ Host to phone:
 | `ack` | `sid`, `seq` (the newest taken), `player`, `ms` (the last one received) | the first state at once, then every 250 ms |
 | `kick` | `reason`: `session` (a `sid` the host does not know: it restarted or the session ended), `timeout` | the phone joins again with `hello` |
 | `bye` | `reason`: `left` (answering the phone's `bye`), `host` (the host quits) | |
-| `info` | `sid`, `is` (0–2³²−1, one more per info; the phone drops older ones), `player`, `game` (the game profile's name, at most 48 bytes), `use`, `seats` (1–8), `taken` (bit n: player n + 1 has a controller, phone or not) | once the phone streams, then on a change and every 2 s |
+| `info` | `sid`, `is` (0–2³²−1, one more per info; the phone drops older ones), `player`, `game` (the game profile's name, at most 48 bytes), `use`, `seats` (1–8), `taken` (bit n: player n + 1 has a controller, phone or not), `rd` (1: the game read this player's npad in the last half second), `ih` (the icon's CRC-32, 8 hex digits; `00000000` none), `isz` (its size in bytes) | once the phone streams, then on a change and every 2 s |
+| `roster` | `sid`, `rs` (ordered like `is`), `n1`…`n8` (who holds each player, only those held: `keyboard`, a controller's name, a phone's own name; at most 24 bytes) | once the phone streams, then on a change and every 3 s |
+| `kbd` | `sid`, `ks` (the request), `max` (characters), `title`, `init` (the text it starts with); or `sid`, `ks`, `done` (1) | the game's keyboard is up on the Mac (every second until a phone answers); `done` when it was answered (by any phone or on the Mac) or closed, twice |
+| `iconpart` | `sid`, `ih`, `off`, `d` (base64 of up to 300 bytes from `off`) | the answer to `icon` |
 
-`info.use` is what the game makes of the phone's player, from the npads it supports (`SetSupportedNpadIdType`, `hle_hid.c` `dm_hid_player_use`): `own` (the game reads that player's npad itself), `p1` (a one-player screen: the controller feeds player 1, as every controller does there), `off` (the game takes fewer players now: not used), `pause` (the game window is not key: released). `seats` is how many players the game takes now (Mario Kart 8 Deluxe: 4 for local play). These are general: nothing is read from a game's memory, so they hold for every game; a character, a kart or a race position would need per-game, per-build knowledge.
+`info.use` is what the game makes of the phone's player, from the npads it supports (`SetSupportedNpadIdType`, `hle_hid.c` `dm_hid_player_use`): `own` (the game reads that player's npad itself), `p1` (a one-player screen: the controller feeds player 1, as every controller does there), `off` (the game takes fewer players now: not used), `pause` (the game window is not key: released). `seats` is how many players the game takes now (Mario Kart 8 Deluxe: 4 for local play). These are general: nothing is read from a game's memory, so they hold for every game; a character, a kart or a race position would need per-game, per-build knowledge. `rd` counts the game's own `GetNpadStates` / `GetNpadState` calls on that player's npad (`hle_hid.c` `dm_hid_reads`; player 1's for a phone a one-player screen merges into it). The icon is a JPEG thumbnail, at most 128 pixels a side (`remote_icon.c`, ImageIO), of `icon.jpg` beside the RomFS image (`DM_ROMFS`) or of `DM_REMOTE_ICON`. The game's keyboard (`hle_swkbd.c` → `front_text_input` in `front_mac.m`) asks every phone while its box is up; the first answer, from a phone or typed on the Mac, wins, and a phone's fills the box and closes it.
 
 Ordering: the host takes a state only when its `seq` is newer than the last one taken (serial number arithmetic, so 0 follows 2³²−1); a late or repeated datagram is dropped, and a lost one is replaced by the next, which carries the whole state. The first state of a session is taken whatever its `seq`. Sticks: each axis is clamped to −1..1, then the pair to the unit circle, then scaled to ±32767; the app applies a 12 % dead zone before sending. The phone counts the host as gone after 2 s without an ack (it keeps sending and says hello again every second); after a `bye` with reason `host` it keeps trying every 2 s, so it joins again when the game is started again.
 
-Host side: `dm/host/remote_proto.h` (parsing, validation, sessions; no socket), `dm/host/remote_mac.c` (socket and thread). Phone side: `dm/remote_pad/lib/protocol.dart` and `client.dart`.
+Host side: `dm/host/remote_proto.h` and its parts (`remote_types.h`, `remote_json.h`, `remote_text.h`, `remote_session.h`, `remote_feed.h`, `remote_parse.h`, `remote_packet.h`, `remote_tick.h`: parsing, validation, sessions, the game's feed; no socket), `dm/host/remote_mac.c` (socket and thread), `remote_front.c` (the hooks into the slots, hid, haptics and the game's keyboard), `remote_icon.c` (the icon's thumbnail). Phone side: `dm/remote_pad/lib/protocol/` and `lib/net/`.
 
 ## Security
 
 - Opt-in: no socket without `DM_REMOTE=1`; `DM_REMOTE_BIND` can keep it to one network.
 - Joining needs the pairing code. Wrong codes are limited before any code is compared: 5 a minute from one address, 30 a minute from all; past that, `busy`. Codes are compared in constant time.
-- A session id is 64 random bits (`arc4random_buf`) and works only from the address and port that joined; a datagram from anywhere else is dropped. At most 8 sessions, 250 datagrams a second per phone, 20 `kick` replies a second; no reply is larger than the datagram that caused it.
+- A session id is 64 random bits (`arc4random_buf`) and works only from the address and port that joined; a datagram from anywhere else is dropped. At most 8 sessions, 250 datagrams a second per phone, 20 `kick` replies a second; no reply to a datagram from an unknown address is larger than that datagram. An `iconpart` is larger than its `icon` request, but it only goes to the address and port a session joined from.
 - Not encrypted: someone who can capture the Wi-Fi's traffic can read the code and the session ids. Use it on a network you trust, and a longer `DM_REMOTE_CODE` on a shared one.
 - The pairing code is not printed in the log when it comes from `DM_REMOTE_CODE` (only a code the host makes itself is, since there is nowhere else to read it).
 
@@ -96,7 +101,7 @@ The actions are `A B X Y L R ZL ZR Plus Minus LS RS DpadUp DpadDown DpadLeft Dpa
 
 ## Tests
 
-- `make -C dm/host/tests GAME=<id> remote` (also part of `run`): `t_remote` (parsing, validation, sticks, seq, sessions over a slot table shared with controllers: codes and their limit, players, release, timeout, rejoin, focus, bye, eight players), `t_kbd_map` (the built-in map is the old fixed one, files, round trip, modifiers), `t_remote_udp` (real datagrams on loopback through `remote_mac.c`'s thread to the npads `hle_hid.c` reports: three phones beside the keyboard in a four-player game).
+- `make -C dm/host/tests GAME=<id> remote` (also part of `run`): `t_remote` (parsing, validation, sticks, seq, sessions over a slot table shared with controllers: codes and their limit, players, release, timeout, rejoin, focus, bye, eight players), `t_remote_feed` (info with reading and the icon, roster, the game's keyboard asked and answered, icon pieces, base64 and CRC), `t_kbd_map` (the built-in map is the old fixed one, files, round trip, modifiers), `t_remote_udp` (real datagrams on loopback through `remote_mac.c`'s thread to the npads `hle_hid.c` reports: three phones beside the keyboard in a four-player game; the feed: reading, roster, the icon made from a PNG, the keyboard answered by a phone).
 - `cd dm/remote_pad && flutter analyze && flutter test`: the protocol, the client's join / heartbeat / seq / rejoin / pause on a fake clock and over a loopback socket, the layout on five screen sizes, multi-touch routing, the screens.
 
 ## Limits
@@ -116,7 +121,7 @@ The phone's tune button opens separate controls for **Volante por inclinación**
 
 Phones advertise `rumble:1` in hello. Legacy phones omit it and receive no rumble. The host routes that player's real game vibration to UDP messages with `t:rumble`, session `sid`, uint32 sequence `rs`, intensity `i`, sharpness `s` (both 0–1), and duration `ms` (0–1000). Changes are limited to 30/s, renewed every 100 ms, with 150 ms pulses that expire if connectivity stops. Phone checks session and sequence before native Core Haptics (iOS) or Vibrator (Android). The Mac's rumble gain applies before transport; touch feedback is independent.
 
-Dependencies: [mobile_scanner](https://pub.dev/packages/mobile_scanner), [sensors_plus](https://pub.dev/packages/sensors_plus). Simulator checks verify presentation and protocol but cannot verify physical camera scanning, motion direction or vibration feel. Character selection, minimap and automatic Bonjour discovery remain unimplemented.
+Dependencies: [mobile_scanner](https://pub.dev/packages/mobile_scanner), [sensors_plus](https://pub.dev/packages/sensors_plus). Simulator checks verify presentation and protocol but cannot verify physical camera scanning, motion direction or vibration feel. Character selection, minimap and automatic Bonjour discovery remain unimplemented. Tilt steering uses the gyroscope when the phone has one (fused with the accelerometer) and the player allows it.
 
 ### Game card
 

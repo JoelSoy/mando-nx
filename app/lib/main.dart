@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'connect_screen.dart';
+import 'screens/connect_screen.dart';
 import 'storage.dart';
 import 'gamer_theme.dart';
 import 'native.dart';

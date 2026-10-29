@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'pairing.dart';
+import '../pairing.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});

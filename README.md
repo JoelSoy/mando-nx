@@ -2,10 +2,13 @@
 
 Tu teléfono como mando, por Wi‑Fi, de los juegos de Nintendo Switch que corren de forma nativa en tu Mac con [nxnative](https://github.com/seedds/nxnative). Cada teléfono es un jugador: por ejemplo Mario Kart 8 Deluxe a 4 jugadores en pantalla dividida, con hasta tres o cuatro teléfonos y el teclado del Mac.
 
-<img src="docs/images/conectar.png" width="640" alt="Pantalla de conexión de Mando NX">
+<img src="docs/images/mando.png" width="640" alt="El mando de Mando NX con la tarjeta del juego">
 
 ## Qué tiene
 
+- **Botones a tu medida:** mueve y cambia el tamaño de cada botón, elige entre los diseños Clásico, Mario Kart, Zurdo y Grande, o guarda los tuyos.
+- **El juego en el teléfono:** su ícono y nombre, **quién juega** en cada puesto, un punto que late mientras **el juego te está leyendo**, y **escribir desde el teléfono** cuando el juego pide un texto.
+- **Volante con giroscopio** cuando el teléfono lo tiene (más preciso), con el acelerómetro corrigiéndolo.
 - **App Flutter (iOS y Android, en español):** mando táctil apaisado con joystick flotante, A B X Y, L R ZL ZR, + −, cruceta y varios dedos a la vez. Conexión por **QR** o a mano (IP, puerto, código), **volante por inclinación** (acelerómetro, con calibración y sensibilidad), **vibración real del juego** y un modo **Probar mando** sin conexión.
 - **Tarjeta del juego en el mando:** el nombre del juego, una luz por cada jugador que admite la partida y lo que el juego hace con tu mando: si lo lee como tu propio jugador, si estás en una pantalla de 1 jugador, si espera turno o si el juego está en pausa.
 - **Host del Mac (parche para nxnative):**

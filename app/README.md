@@ -4,12 +4,16 @@ A phone as a controller for nxnative's Mac host over Wi-Fi: a landscape touch ga
 
 Flutter, iOS and Android, mobile_scanner for camera QR scanning and sensors_plus for tilt steering (the settings are a small JSON file in the app's private storage, `lib/storage.dart`).
 
-| File | What |
+| Folder | What |
 |---|---|
-| `lib/protocol.dart` | messages, validation, stick normalization (dead zone, unit circle), the connect screen's checks |
-| `lib/client.dart` | the session: hello until a welcome, the 17 ms heartbeat with sequence numbers, ack timeout, rejoin after a kick or the host's quit, pause / resume |
-| `lib/pad_layout.dart` | where each control is on a landscape screen (inside the safe area) and which finger presses what |
-| `lib/pad_screen.dart`, `lib/connect_screen.dart`, `lib/main.dart` | the screens; `GameCard` shows the host's `info` (game, lights per seat, what the game makes of this player) |
+| `lib/protocol/` | the messages both ways, their checks, stick normalization (`protocol.dart` exports them) |
+| `lib/net/` | the session (hello, heartbeat, rejoin, pause) and the game's feed: rumble, info, roster, keyboard, icon (`client.dart`) |
+| `lib/pad/` | layouts and presets, where each control is on a screen, the touch router, the editor (`pad_layout.dart`) |
+| `lib/pad/screen/` | the pad screen and its parts, the game card, the settings sheet, the keyboard prompt (`pad_screen.dart`) |
+| `lib/motion/` | tilt steering: accelerometer and gyroscope |
+| `lib/screens/`, `lib/storage/` | the connect screen and QR scanner; the kept settings and pad preferences |
+
+Every file is under 200 lines.
 
 Permissions: Android `INTERNET` (`android/app/src/main/AndroidManifest.xml`); iOS `NSLocalNetworkUsageDescription` (`ios/Runner/Info.plist`), which iOS asks the player about the first time. Both keep the screen on while the app is in front and lock it to landscape.
 

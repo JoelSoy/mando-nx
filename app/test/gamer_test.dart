@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:remote_pad/pairing.dart';
-import 'package:remote_pad/tilt.dart';
+import 'package:remote_pad/motion/steering.dart';
 import 'package:remote_pad/client.dart';
 
 class Wire implements Transport {
@@ -34,17 +34,17 @@ void main() {
   test(
     'tilt is calibrated, bounded, filtered, ignores invalid sensor and centres',
     () {
-      final t = TiltSteering();
-      expect(t.sample(0, 0, 9.8), 0);
+      final t = Steering();
+      expect(t.accel(0, 0, 9.8), 0);
       for (var i = 0; i < 20; i++) {
-        t.sample(0, 9.8, 0);
+        t.accel(0, 9.8, 0);
       }
-      expect(t.sample(0, 9.8, 0), greaterThan(.9));
+      expect(t.accel(0, 9.8, 0), greaterThan(.9));
       t.calibrate();
-      expect(t.sample(0, 9.8, 0), 0);
-      expect(t.sample(double.nan, 0, 0), 0);
+      expect(t.accel(0, 9.8, 0), 0);
+      expect(t.accel(double.nan, 0, 0), 0);
       t.reset();
-      expect(t.sample(0, 9.8, 0), 0);
+      expect(t.accel(0, 9.8, 0), 0);
     },
   );
   test('rumble validates session and sequence; pause stops output', () {

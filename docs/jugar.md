@@ -22,7 +22,33 @@ En la Terminal aparecen la IP del Mac, el puerto (47800) y el código. Con el ju
 3. Arriba sale tu jugador (**Jugador 1**, **Jugador 2**…) y la latencia, por ejemplo `Conectado · 12 ms`.
 4. **Salir** libera tu jugador al momento. Si el teléfono se bloquea o pierde la red, sus botones se sueltan en medio segundo y pierde el jugador a los 5 segundos. Al volver se reconecta solo y recupera el mismo jugador si sigue libre.
 
-**Probar mando** abre el mando sin conexión (dice DEMO), para ver los botones.
+**Probar mando** abre el mando sin conexión (dice DEMO), para ver los botones. **Salir** y los **Ajustes** (el icono de controles) están arriba, junto a ZL y ZR.
+
+## Personalizar los botones
+
+En **Ajustes → Diseño de los botones**:
+
+- **Diseños incluidos**:
+  - **Clásico** (el de siempre, con el interruptor de inclinación en el centro de abajo);
+  - **Mario Kart** (joystick, A, B, L y R más grandes; cruceta y − + más chicos);
+  - **Zurdo** (joystick a la derecha, A B X Y y cruceta a la izquierda);
+  - **Grande**.
+- Toca uno y se usa al momento. Los tuyos aparecen al lado, con una ✕ para borrarlos.
+- **Personalizar botones (posición y tamaño)** abre el editor:
+  - **un dedo** sobre una pieza la selecciona y la arrastra;
+  - **dos dedos** la agrandan o achican (pellizco); también con la barra **Tamaño**, del 50 % al 200 %;
+  - las piezas son el joystick, la cruceta, A B X Y (juntos), ZL, L, ZR, R, −, +, el interruptor de inclinación, Salir y Ajustes;
+  - ↺ devuelve la pieza seleccionada a su lugar (sin ninguna seleccionada, deshace todo);
+  - ⇅ mueve el panel del editor arriba o abajo para ver lo que tapa.
+  - Mientras editas, el mando no envía nada al juego.
+- Para terminar:
+  - **Listo** guarda tus cambios como **Personalizado**; si empezaste desde uno tuyo, lo actualiza;
+  - **Guardar como…** le pone nombre (puedes tener hasta 6);
+  - **Cancelar** deja todo como estaba.
+
+El diseño se adapta a cada pantalla: cada pieza mantiene su distancia al borde más cercano y lo del centro se queda en el centro. El diseño elegido, la inclinación, la sensibilidad y la vibración se recuerdan para la próxima vez.
+
+<img src="images/mando.png" width="640" alt="El mando con el diseño Clásico y la tarjeta del juego">
 
 ## Jugadores
 
@@ -32,7 +58,16 @@ En la Terminal aparecen la IP del Mac, el puerto (47800) y el código. Con el ju
 
 ## La tarjeta del juego
 
-En el centro del mando, el host muestra lo que sabe del juego:
+En el centro del mando, el Mac muestra lo que sabe del juego:
+
+- **El ícono y el nombre del juego.** El ícono sale de los archivos del juego, como una miniatura de 128 px.
+- **Quién juega:** una luz por cada jugador que acepta la partida, con su nombre debajo.
+  - **Tú** es tu teléfono, con tu color;
+  - **Teclado** es el teclado del Mac;
+  - un mando físico aparece con su nombre (por ejemplo "Xbox Wireless Controller");
+  - los demás teléfonos, con el nombre que pusieron al conectar.
+- **El juego te está leyendo:** el punto delante del texto late mientras el juego lee tu mando, y queda hueco si no lo lee (pantallas de carga, una pausa, un modo en el que no participas).
+- **Qué hace el juego con tu mando:**
 
 | Dice | Significa |
 |---|---|
@@ -41,9 +76,15 @@ En el centro del mando, el host muestra lo que sabe del juego:
 | **El juego acepta N jugadores ahora: tu mando espera** | Hay más mandos que jugadores en esta pantalla |
 | **En pausa: pon la ventana del juego al frente en el Mac** | La ventana del juego no está al frente |
 
-Las luces son los jugadores que acepta la partida: la tuya, de tu color; las rellenas, jugadores con mando. El teléfono vibra cuando el juego toma tu mando.
+El teléfono vibra cuando el juego toma tu mando. El nombre del personaje, el kart o la posición en la carrera **no** salen: están dentro de la memoria del juego y habría que estudiarla para cada juego y cada versión.
 
-El nombre del personaje, el kart o la posición en la carrera **no** salen: están dentro de la memoria del juego y habría que estudiarla para cada juego y cada versión.
+## Escribir desde el teléfono
+
+Cuando el juego pide un texto (un nombre, por ejemplo), en el Mac aparece su cuadro para escribir **y en cada teléfono conectado una ventana con el mismo pedido**:
+
+- Escribe en el teléfono y toca **Enviar**: el texto llega al juego como si lo hubieras escrito en el Mac.
+- Gana el primero que conteste, el teléfono o el Mac. En los demás teléfonos la ventana se cierra sola.
+- Mientras escribes, el mando no envía botones.
 
 ## Controles (Mario Kart 8 Deluxe)
 
@@ -61,10 +102,12 @@ Para jugar a varios en Mario Kart: en el menú principal elige el modo multijuga
 
 ## Volante por inclinación
 
-- Activa **Inclinación** (abajo a la izquierda) y sostén el teléfono apaisado como un volante.
-- En los ajustes (el icono abajo a la derecha) están la **Sensibilidad** y **Centrar volante**: tócalo con el teléfono en posición neutra.
+- Activa **Inclinación** (en el centro, abajo) y sostén el teléfono apaisado como un volante, de pie o acostado como una bandeja.
+- **Con giroscopio** (todos los iPhone lo tienen): el volante es más preciso y no tiembla con los movimientos bruscos. El acelerómetro solo lo va corrigiendo despacio para que no se desvíe. Debajo de "Inclinación" dice **Giroscopio** o **Acelerómetro** según cuál esté dirigiendo. Se puede apagar en **Ajustes → Usar el giroscopio si el teléfono lo tiene**. Gira igual con la cámara a la izquierda o a la derecha; si das vuelta el teléfono, el volante se vuelve a centrar solo.
+- En los ajustes están la **Sensibilidad** y **Centrar volante**: tócalo con el teléfono en posición neutra.
 - Si tocas el joystick, manda el joystick.
-- Si sales de la app o el sensor falla, la inclinación se apaga y vuelve el joystick. Solo usa el acelerómetro: no hace falta giroscopio.
+- Queda activada aunque bajes el Centro de Control, llegue un aviso del sistema o salgas un momento de la app: el sensor descansa mientras tanto y vuelve solo. Solo se apaga si la apagas tú o si el sensor deja de responder (te avisa). Usa solo el acelerómetro: no hace falta giroscopio.
+- En el iPhone, deslizar desde un borde (notificaciones, Centro de Control, la barra de inicio) pide un segundo deslizamiento mientras juegas, para que un pulgar en el borde no te saque del juego.
 
 ## Vibración
 
