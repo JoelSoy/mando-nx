@@ -1,0 +1,5 @@
+#include "Generated.xcconfig"
+// Signing. The default bundle ID is here; your Apple team (and another bundle ID, if this one is taken) go in Signing.xcconfig beside this file,
+// which git ignores: scripts/install_ios.sh writes it, or copy Signing.xcconfig.example.
+PRODUCT_BUNDLE_IDENTIFIER = org.nxnative.remotePad
+#include? "Signing.xcconfig"

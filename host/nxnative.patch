@@ -1,0 +1,2098 @@
+diff --git a/README.md b/README.md
+index ca6b541..735b603 100644
+--- a/README.md
++++ b/README.md
+@@ -237,6 +237,7 @@ Switch Pro Controller gyro on the Mac still needs the HID support being develope
+ **Shaking.** Shake the iPhone to shake the controller, in games that read its motion: Super Mario Odyssey's motion moves (such as the cap throw on a shake) need it, and Odyssey only takes them in its default docked mode. A light bump does not count; a sharp flick of the phone does.
+ 
+ - **Game language** is English by default. Pick another when packing with `--language` (`-l`), by code or by name: `-l ja`, `-l zh-Hans`, `-l French` (`LANGUAGE` in Spyder). It must be one the game has; the script prints the game's languages and stops on one it lacks. To change it without rebuilding, pick another on the settings screen.
++- **Phones as controllers (Mac):** with `DM_REMOTE=1` the Mac host takes phones running the Mando NX app over Wi-Fi, each a player of its own beside the keyboard and controllers (four-player Mario Kart: the keyboard and three phones). The keyboard's keys can be changed from the game window's **Controllers** menu. See [Wi-Fi controllers](docs/wifi-controllers.md).
+ - **On the Mac**, a game's app starts with the settings it was tested with. To choose others before it starts (frame rate, console mode, upscaling, …), start it from [NX2Apple](https://github.com/LNPANDY/NX2Apple)'s library, or put lines like `DM_FPS_TARGET=30` in `~/Library/Application Support/nxnative/<title ID>/env.txt`. Its log is `~/Library/Logs/nxnative/<title ID>.log`.
+ - **Saves and logs** are in the Files app, under the app's name: `save/` and `log.txt`. When something goes wrong, send `log.txt` (the previous run is `log.prev.txt`).
+ - **Short stutters** the first time a new scene appears are normal: the app compiles graphics for it once and remembers them for the next launch. What it remembered, and what the game's list names, is built before the game starts, behind "Preparing shaders" and a progress bar when that takes more than half a second.
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 410b6ce..35d52b0 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -16,7 +16,7 @@ endif
+ GAME_H = gen/$(GAME)/game_profile.h
+ CFLAGS=-O1 -g -Wall -Wno-unused-function
+ # Service-layer takeover hle_*.c files are included by wildcard: adding a file does not touch this line (avoids merge conflicts)
+-SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
++SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controls_mac.m remote_mac.c entry.S
+ # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)
+ # Sources under dm/gfx, dm/gfx/nvn, dm/gfx/tex, dm/gfx/vk and dm/gfx/gl are included by wildcard (tests/ and metal/ do not go into the host): adding a file does not touch this line
+ GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S ../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))
+@@ -50,7 +50,7 @@ endif
+ endif
+ .PHONY: FORCE
+ FORCE:
+-dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB)
++dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h dm_input.h pad_slots.h kbd_map.h controls_mac.h remote_mac.h remote_proto.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB)
+ 	clang $(CFLAGS) -I../gfx/nvn/include -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) -framework Cocoa -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx build; dmhost_* and *.dSYM beside them, as in .gitignore)
+ 	rm -rf gen dmhost dmhost_* *.dSYM
+diff --git a/dm/host/controls_mac.h b/dm/host/controls_mac.h
+new file mode 100644
+index 0000000..7f69bcf
+--- /dev/null
++++ b/dm/host/controls_mac.h
+@@ -0,0 +1,13 @@
++// The Mac keyboard map's file and its window (controls_mac.m; the map itself is kbd_map.h). Main thread only.
++#pragma once
++#include <stddef.h>
++#include "kbd_map.h"
++
++// The map file: DM_KBD_MAP, else ~/Library/Application Support/nxnative/keyboard.txt (one map for every game; outside the game's folders and the repository)
++void dm_kbd_path(char *out, size_t cap);
++int dm_kbd_load(kbd_map *m);         // the file over the built-in map (its problems logged); 0 and the built-in map when there is no file
++int dm_kbd_save(const kbd_map *m);   // writes the file (a map equal to the built-in one removes it, so a later build's defaults apply); 1 on success
++// The Keyboard Controls window (the Controllers menu, ⌘K): a row per action with two key boxes; a click on a box, then a key, assigns it, saved at once.
++// m is the front end's map, changed in place; changed() is called after each change (the front end lets go of the keys held)
++void dm_controls_init(kbd_map *m, void (*changed)(void));
++void dm_controls_show(void);
+diff --git a/dm/host/controls_mac.m b/dm/host/controls_mac.m
+new file mode 100644
+index 0000000..456140c
+--- /dev/null
++++ b/dm/host/controls_mac.m
+@@ -0,0 +1,130 @@
++// The Mac keyboard map's file and its Keyboard Controls window (controls_mac.h). The window lays out a row per action (kbd_map.h KBD_ACTION) in two columns, each row with two key
++// boxes. Clicking a box waits for a key: the next key pressed (Shift, Control and Option too) is that box's key, Esc cancels, Delete clears the box, a Command shortcut still goes to
++// the menus. A key already used by another action moves to this one. Every change is saved at once and applies to the game at once; Restore Defaults removes the file.
++// While the window is in front the game window is not key, so the game sees no keyboard input (front_mac.m input_release).
++#import <Cocoa/Cocoa.h>
++#include "dm.h"
++#include "controls_mac.h"
++#include <errno.h>
++#include <stdlib.h>
++
++void dm_kbd_path(char *out, size_t cap) {
++    const char *e = getenv("DM_KBD_MAP");
++    if (e && *e) { snprintf(out, cap, "%s", e); return; }
++    const char *home = getenv("HOME");
++    snprintf(out, cap, "%s/Library/Application Support/nxnative/keyboard.txt", home && *home ? home : ".");
++}
++static void warn_line(void *ctx, int line, const char *msg) { LOG("[RED] keyboard map %s line %d: %s (the line is ignored)", (const char *)ctx, line, msg); }
++int dm_kbd_load(kbd_map *m) {
++    char path[1024]; dm_kbd_path(path, sizeof path);
++    kbd_default(m);
++    FILE *f = fopen(path, "r");
++    if (!f) { if (errno != ENOENT) LOG("[RED] keyboard map %s: %s (using the built-in keys)", path, strerror(errno)); return 0; }
++    char text[16384]; size_t n = fread(text, 1, sizeof text - 1, f); text[n] = 0; fclose(f);
++    int bad = kbd_parse(m, text, warn_line, path);
++    LOG("front end: keyboard map from %s%s", path, bad ? " (some lines ignored)" : "");
++    return 1;
++}
++int dm_kbd_save(const kbd_map *m) {
++    char path[1024]; dm_kbd_path(path, sizeof path);
++    NSString *p = @(path);
++    if (kbd_is_default(m)) {
++        if (unlink(path) && errno != ENOENT) { LOG("[RED] keyboard map %s: cannot remove it: %s", path, strerror(errno)); return 0; }
++        LOG("front end: keyboard map back to the built-in keys (%s removed)", path);
++        return 1;
++    }
++    NSError *err = nil;
++    if (![NSFileManager.defaultManager createDirectoryAtPath:p.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:&err]) {
++        LOG("[RED] keyboard map %s: cannot make its folder: %s", path, err.localizedDescription.UTF8String); return 0;
++    }
++    char text[8192]; size_t n = kbd_format(m, text, sizeof text);
++    NSData *d = [NSData dataWithBytes:text length:n];
++    if (![d writeToFile:p options:NSDataWritingAtomic error:&err]) { LOG("[RED] keyboard map %s: cannot write it: %s", path, err.localizedDescription.UTF8String); return 0; }
++    LOG("front end: keyboard map saved to %s", path);
++    return 1;
++}
++
++static kbd_map *g_map; static void (*g_changed)(void);
++static NSWindow *g_cwin; static NSTextField *g_status;
++static NSButton *g_box[KBD_ACTIONS][2];
++static int g_capture = -1;   // the box waiting for a key: action * 2 + box, -1 = none
++static id g_monitor;
++static const char *ROWS[2][13] = {
++    {"A", "B", "X", "Y", "L", "R", "ZL", "ZR", "Plus", "Minus", "LS", "RS", "Shake"},
++    {"DpadUp", "DpadDown", "DpadLeft", "DpadRight", "LStickUp", "LStickDown", "LStickLeft", "LStickRight", "RStickUp", "RStickDown", "RStickLeft", "RStickRight", NULL},
++};
++static NSString *key_title(int code) {
++    static const struct { const char *name, *shown; } nice[] = {{"LeftArrow", "\xe2\x86\x90"}, {"RightArrow", "\xe2\x86\x92"}, {"UpArrow", "\xe2\x86\x91"}, {"DownArrow", "\xe2\x86\x93"}};
++    const char *n = kbd_key_name(code); if (!n) return @"?";
++    for (size_t i = 0; i < sizeof nice / sizeof nice[0]; i++) if (!strcmp(n, nice[i].name)) return @(nice[i].shown);
++    return @(n);
++}
++static void refresh(void) {
++    for (int a = 0; a < KBD_ACTIONS; a++) {
++        int codes[KBD_KEYS], n = kbd_keys_of(g_map, a, codes, KBD_KEYS);
++        for (int b = 0; b < 2; b++) if (g_box[a][b]) g_box[a][b].title = g_capture == a * 2 + b ? @"Press a key\xe2\x80\xa6" : b < n ? key_title(codes[b]) : @"\xe2\x80\x94";
++    }
++    char path[1024]; dm_kbd_path(path, sizeof path);
++    g_status.stringValue = g_capture >= 0 ? [NSString stringWithFormat:@"Press the key for %s. Esc cancels, Delete clears the box.", KBD_ACTION[g_capture / 2].label]
++                                          : [NSString stringWithFormat:@"Click a box, then press a key. Saved to %s", path];
++}
++static void changed(void) { dm_kbd_save(g_map); if (g_changed) g_changed(); }
++static void assign(int code) {   // the captured box gets the key
++    int a = g_capture / 2, b = g_capture % 2, codes[KBD_KEYS], n = kbd_keys_of(g_map, a, codes, KBD_KEYS);
++    g_capture = -1;
++    if (b < n && codes[b] != code) kbd_set(g_map, codes[b], -1);   // the box's old key
++    if (code >= 0) {
++        int old = g_map->act[code] ? g_map->act[code] - 1 : -1;
++        kbd_set(g_map, code, a);
++        if (old >= 0 && old != a) LOG("front end: key %s moved from %s to %s", kbd_key_name(code), KBD_ACTION[old].name, KBD_ACTION[a].name);
++    }
++    changed(); refresh();
++}
++
++@interface DmControls : NSObject <NSWindowDelegate> @end
++@implementation DmControls
++- (void)box:(NSButton *)sender { g_capture = (int)sender.tag; refresh(); }
++- (void)restore:(id)sender { (void)sender; g_capture = -1; kbd_default(g_map); changed(); refresh(); }
++- (void)windowWillClose:(NSNotification *)n { (void)n; g_capture = -1; }
++@end
++static DmControls *g_target;
++
++void dm_controls_init(kbd_map *m, void (*cb)(void)) { g_map = m; g_changed = cb; }
++void dm_controls_show(void) {
++    if (!g_map) return;
++    if (g_cwin) { refresh(); [g_cwin makeKeyAndOrderFront:nil]; return; }
++    g_target = [DmControls new];
++    const CGFloat W = 760, H = 500, top = H - 64, row = 28;
++    g_cwin = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, W, H) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
++    g_cwin.title = @"Keyboard Controls"; g_cwin.releasedWhenClosed = NO; g_cwin.delegate = g_target;
++    NSView *v = g_cwin.contentView;
++    for (int col = 0; col < 2; col++) {
++        CGFloat x0 = 20 + col * 375;
++        NSArray *heads = @[@"Action", @"Key", @"Second key"]; CGFloat hx[3] = {0, 160, 265};
++        for (int i = 0; i < 3; i++) { NSTextField *h = [NSTextField labelWithString:heads[i]]; h.font = [NSFont boldSystemFontOfSize:12]; h.frame = NSMakeRect(x0 + hx[i], top + 10, 120, 18); [v addSubview:h]; }
++        for (int r = 0; r < 13 && ROWS[col][r]; r++) {
++            int a = kbd_action_of(ROWS[col][r]); CGFloat y = top - 10 - r * row;
++            NSTextField *l = [NSTextField labelWithString:@(KBD_ACTION[a].label)]; l.frame = NSMakeRect(x0, y + 3, 155, 18); [v addSubview:l];
++            for (int b = 0; b < 2; b++) {
++                NSButton *bt = [NSButton buttonWithTitle:@"" target:g_target action:@selector(box:)];
++                bt.frame = NSMakeRect(x0 + 155 + b * 105, y, 100, 26); bt.tag = a * 2 + b; bt.bezelStyle = NSBezelStyleRounded;
++                g_box[a][b] = bt; [v addSubview:bt];
++            }
++        }
++    }
++    g_status = [NSTextField wrappingLabelWithString:@""]; g_status.frame = NSMakeRect(20, 18, W - 200, 40); g_status.textColor = NSColor.secondaryLabelColor; [v addSubview:g_status];
++    NSButton *rd = [NSButton buttonWithTitle:@"Restore Defaults" target:g_target action:@selector(restore:)]; rd.frame = NSMakeRect(W - 170, 20, 150, 28); [v addSubview:rd];
++    // The box waiting for a key takes the next key here, before the window's own handling (Tab, Return and Esc would move the focus, press a button or close it)
++    g_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskFlagsChanged handler:^NSEvent *(NSEvent *e) {
++        if (g_capture < 0 || e.window != g_cwin) return e;
++        if (e.type == NSEventTypeFlagsChanged) { int down; if (kbd_modifier(e.keyCode, e.modifierFlags, &down) && down) assign(e.keyCode); return nil; }
++        if (e.modifierFlags & NSEventModifierFlagCommand) return e;
++        if (e.keyCode == 53) { g_capture = -1; refresh(); return nil; }   // Esc
++        if (e.keyCode == 51) { assign(-1); return nil; }                    // Delete: the box is cleared
++        if (e.keyCode < KBD_KEYS && kbd_key_name(e.keyCode)) assign(e.keyCode);
++        else NSBeep();
++        return nil;
++    }];
++    refresh();
++    [g_cwin center]; [g_cwin makeKeyAndOrderFront:nil];
++}
+diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
+index 9cda0d0..f215a1b 100644
+--- a/dm/host/dm_input.h
++++ b/dm/host/dm_input.h
+@@ -21,6 +21,12 @@ uint64_t dm_input_samples(void);   // Cumulative number of times the game has sa
+ void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);
+ void dm_pad_set_player(int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);   // player 0..DM_PLAYERS-1 (player 1..8)
+ void dm_pad_players(uint32_t mask);   // bit p: player p + 1 has a controller; player 1 always counts as connected (the keyboard, the touch gamepad, DM_KEYS)
++// What the game makes of the players now (hle_hid.c; the Wi-Fi controllers tell their phones, remote_mac.c): dm_hid_player_use(p) is 1 when the game reads player p + 1's npad itself,
++// 2 when that controller feeds player 1 (a one-player game), 0 when it is not used (a game for fewer players); dm_hid_seats the players the game takes (its supported npads No1..No8,
++// Handheld counting as No1); dm_hid_players the mask dm_pad_players last set
++int dm_hid_player_use(int p);
++int dm_hid_seats(void);
++uint32_t dm_hid_players(void);
+ // Live controller motion (hle_hid.c, motion_fusion.h): player 0..DM_PLAYERS-1's gyro and accelerometer as GameController reports them, acceleration in G (gravity direction,
+ // (0, 0, -1) face up) and rotation rate in rad/s, in Apple's controller frame. While samples keep coming the player's six-axis sensor follows the controller; dm_motion_clear stops it
+ void dm_motion_set(int player, const float acc[3], const float rot[3]);
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 6a3ad3f..29ea3dc 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -1,13 +1,16 @@
+ // Mac front end: with DM_WINDOW=1 open a window (CAMetalLayer, for the graphics backend to present frames) + keyboard and controllers → dm_input; the guest runs on a large-stack thread instead and the main thread belongs to AppKit.
+ // Without DM_WINDOW: the guest runs directly on the current thread, behaving the same as with no front end (windowless tests use this).
+ // The window is fullscreen-capable (the green button and ⌃⌘F); DM_FULLSCREEN=1 starts it that way. ⌘Q quits; the left mouse button is the touchscreen.
+-// Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
++// Key map (Nintendo layout, kbd_map.h): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
++// The keys can be changed in the Keyboard Controls window (Controllers menu, ⌘K; controls_mac.m), kept in a map file (DM_KBD_MAP, else ~/Library/Application Support/nxnative/keyboard.txt).
+ // Controllers: buttons by position as on the iPhone (right A, bottom B, top X, left Y), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
+ // Each controller is a player of its own (local co-op): the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (pad_slots.h);
+ // DM_PAD_MERGE=1 merges every controller into player 1 instead, DM_KBD_PLAYER=own makes the keyboard player 1 on its own, with the controllers from player 2 on.
++// Phones over Wi-Fi (DM_REMOTE=1, remote_mac.c) take players from the same slot table, so a phone and a controller never share one; the Controllers menu shows where they connect.
+ #import <Cocoa/Cocoa.h>
+ #import <QuartzCore/CAMetalLayer.h>
+ #import <Metal/Metal.h>
++#import <CoreImage/CoreImage.h>
+ #import <GameController/GameController.h>
+ #include "dm.h"
+ #include "dm_input.h"
+@@ -17,13 +20,17 @@
+ #include "haptics_apple.h"
+ #include "motion_apple.h"
+ #include "motion_pro_mac.h"
++#include "kbd_map.h"
++#include "controls_mac.h"
++#include "remote_mac.h"
+ #include <signal.h>
+ #include <math.h>
++#include <pthread.h>
++#include <stdatomic.h>
+ 
+ static CAMetalLayer *g_layer;
+-static uint64_t g_btn;
+-static int g_w, g_a, g_s, g_d;
+-static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)
++static kbd_map g_kmap; static kbd_keys g_keys;   // main thread: the keyboard map and the keys held
++static _Atomic int g_input_on = 1;   // written on the main thread: the game window is key, so its keyboard, mouse, controllers and phones reach the game (input_release / input_resume)
+ 
+ void *front_metal_layer(void) { return (__bridge void *)g_layer; }
+ static _Atomic int g_screen_fps;   // the window's screen's maximumFramesPerSecond, kept up to date when the window moves to another screen
+@@ -85,28 +92,20 @@ void front_screen_match(int fps) {
+     g_match_want = fps; dispatch_async(dispatch_get_main_queue(), ^{ screen_match_apply(); });
+ }
+ static void push(void) {
+-    int32_t lx = (g_d - g_a) * 32767, ly = (g_w - g_s) * 32767;
+-    dm_input_set(g_btn, lx, ly, 0, 0);
+-}
+-static int key_bit(unsigned short code) {
+-    switch (code) {
+-        case 38: return 0;  case 40: return 1;  case 32: return 2;  case 34: return 3;    // J K U I → A B X Y
+-        case 3: return 4;   case 5: return 5;                                            // F G → press stick
+-        case 12: return 6;  case 14: return 7;  case 6: return 8;   case 8: return 9;    // Q E Z C → L R ZL ZR
+-        case 36: return 10; case 48: return 11;                                          // Return Tab → + −
+-        case 123: return 12; case 126: return 13; case 124: return 14; case 125: return 15; // ← ↑ → ↓
+-    }
+-    return -1;
++    uint64_t b; int32_t a[4]; kbd_compose(&g_kmap, &g_keys, &b, a);   // Shake: shaken while held
++    dm_input_set(b, a[0], a[1], a[2], a[3]);
+ }
++static void keys_release(void) { memset(&g_keys, 0, sizeof g_keys); push(); }
+ static void on_key(NSEvent *e, int down) {
+     if (!g_input_on) return;
+-    unsigned short c = e.keyCode;
+-    switch (c) { case 13: g_w = down; break; case 0: g_a = down; break; case 1: g_s = down; break; case 2: g_d = down; break; }
+-    int b = key_bit(c);
+-    uint64_t m = b >= 0 ? 1ull << b : c == 49 ? DM_BTN_SHAKE : 0;   // Space: shaken while held
+-    g_btn = down ? (g_btn | m) : (g_btn & ~m);
++    if (e.keyCode < KBD_KEYS) g_keys.down[e.keyCode] = (uint8_t)down;
+     push();
+ }
++static void on_flags(NSEvent *e) {   // Shift, Control, Option: a flag change, not a key press
++    int down;
++    if (!g_input_on || e.keyCode >= KBD_KEYS || !kbd_modifier(e.keyCode, e.modifierFlags, &down)) return;
++    g_keys.down[e.keyCode] = (uint8_t)down; push();
++}
+ 
+ // Physical controllers (GameController) go to dm_pad_set_player, mapped as the iPhone's (DmGamepad.m read_pad, same layout); player 1's is ORed with the keyboard, a stick takes
+ // whichever is deflected more (hle_hid.c). DM_KEYS uses player 1's path, so player 1's controller touched during a script takes it over.
+@@ -114,12 +113,14 @@ static void on_key(NSEvent *e, int down) {
+ // player n on its own npad while the slot is held (dm_pad_players). A one-player game that supports only No1 / Handheld still sees every controller as player 1 (hle_hid.c).
+ // With DM_PAD_MERGE=1 every controller is player 1, as before (the last one moved wins; when the last one goes away its buttons and sticks are released)
+ static pad_slots g_slots;
++static pthread_mutex_t g_slots_mu = PTHREAD_MUTEX_INITIALIZER;   // the slot table: the main thread (controllers) and the Wi-Fi receiver's thread (phones, remote_mac.c)
++static int slot_of(const void *owner) { pthread_mutex_lock(&g_slots_mu); int p = pad_slot_of(&g_slots, owner); pthread_mutex_unlock(&g_slots_mu); return p; }
+ static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
+ static int g_merge, g_kbd_own;
+ static int32_t pad_axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * DM_STICK_MAX); }
+ static void pad_read(GCExtendedGamepad *g) {
+     if (!g_input_on) return;
+-    int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
++    int p = g_merge ? 0 : slot_of((__bridge const void *)g.controller); if (p < 0) return;
+     dm_haptics_apple_controller(p, g.controller);
+     uint64_t m = 0;
+     #define K(btn, bit) if (btn.isPressed) m |= bit
+@@ -135,7 +136,7 @@ static void pad_read(GCExtendedGamepad *g) {
+ static void pro_players_changed(GCController *gone) {
+     int count = 0, player = -1;
+     for (GCController *c in GCController.controllers) if (c != gone && c.extendedGamepad && [c.productCategory isEqualToString:@"Switch Pro Controller"]) {
+-        count++; player = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)c);
++        count++; player = g_merge ? 0 : slot_of((__bridge const void *)c);
+     }
+     dm_motion_pro_players(count, player);
+ }
+@@ -160,11 +161,14 @@ static void pads_changed(GCController *gone) {
+         g_held[p].extendedGamepad.valueChangedHandler = nil;
+         dm_motion_detach(g_held[p], p);
+         dm_haptics_apple_controller(p, nil);
+-        pad_slot_free(&g_slots, (__bridge const void *)g_held[p]); g_held[p] = nil;
+         dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
++        pthread_mutex_lock(&g_slots_mu); pad_slot_free(&g_slots, (__bridge const void *)g_held[p]); dm_pad_players(pad_slot_mask(&g_slots)); pthread_mutex_unlock(&g_slots_mu);
++        g_held[p] = nil;
+     }
+-    for (GCController *c in now) if (c.extendedGamepad && c != gone && pad_slot_of(&g_slots, (__bridge const void *)c) < 0) {
++    for (GCController *c in now) if (c.extendedGamepad && c != gone && slot_of((__bridge const void *)c) < 0) {
++        pthread_mutex_lock(&g_slots_mu);
+         int p = pad_slot_take(&g_slots, (__bridge const void *)c, pad_name(c));
++        pthread_mutex_unlock(&g_slots_mu);
+         if (p < 0) { LOG("controller '%s' connected: all %d players are taken, not used", pad_name(c), DM_PLAYERS); continue; }
+         g_held[p] = c;
+         c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; pad_read(g); };
+@@ -172,7 +176,7 @@ static void pads_changed(GCController *gone) {
+         npad_name(p, nb, sizeof nb); LOG("controller '%s' connected: player %d (npad %s)%s", pad_name(c), p + 1, nb, c.motion.hasRotationRate ? ", with motion (gyro)" : "");
+         pad_read(c.extendedGamepad);
+     }
+-    dm_pad_players(pad_slot_mask(&g_slots));
++    pthread_mutex_lock(&g_slots_mu); dm_pad_players(pad_slot_mask(&g_slots)); pthread_mutex_unlock(&g_slots_mu);
+     pro_players_changed(gone);
+ }
+ // Focus: a window that is no longer key sees no key-up, mouse-up or controller release, so whatever is held when it loses focus (another app, the text box, minimized) would
+@@ -182,7 +186,7 @@ static void pads_changed(GCController *gone) {
+ static void input_release(void) {
+     g_input_on = 0;
+     dm_motion_pro_active(0);
+-    g_btn = 0; g_w = g_a = g_s = g_d = 0; push();
++    keys_release();   // phones are released by the Wi-Fi receiver, which follows g_input_on (remote_proto.h rp_tick)
+     if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
+     if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) { dm_pad_set(0, 0, 0, 0, 0); break; } }
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
+@@ -197,7 +201,7 @@ static void pads_start(void) {
+     const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
+     e = getenv("DM_KBD_PLAYER"); g_kbd_own = !g_merge && e && !strcmp(e, "own");
+     static const char kbd = 0;
+-    if (g_kbd_own) pad_slot_take(&g_slots, &kbd, "keyboard");   // holds player 1 for good
++    if (g_kbd_own) { pthread_mutex_lock(&g_slots_mu); pad_slot_take(&g_slots, &kbd, "keyboard"); pthread_mutex_unlock(&g_slots_mu); }   // holds player 1 for good
+     LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : g_kbd_own ? "the keyboard is player 1, each controller a player of its own from player 2 on (DM_KBD_PLAYER=own)"
+                                                                            : "each controller is a player of its own, the keyboard plays with player 1");
+     pads_changed(nil);
+@@ -239,12 +243,42 @@ - (void)viewDidChangeBackingProperties { [super viewDidChangeBackingProperties];
+     ((guest_arg *)p)->fn(); LOG("guest thread finished"); exit(0);
+ }
+ 
++// The Controllers menu: Keyboard Controls… (⌘K) and, with DM_REMOTE=1, where phones connect and which are connected (also in the window's title, which fullscreen hides)
++static NSMenuItem *g_wifi_item, *g_phones_item;
++static void remote_status(void) {   // main thread
++    char info[160], players[256];
++    if (!dm_remote_info(info, sizeof info)) return;
++    dm_remote_players(players, sizeof players);
++    g_wifi_item.title = [NSString stringWithFormat:@"Wi-Fi: %s", info];
++    g_phones_item.title = players[0] ? [NSString stringWithFormat:@"Phones: %s", players] : @"Phones: none connected";
++    g_win.title = [NSString stringWithFormat:@"%@ - Wi-Fi %s", @DM_GAME_NAME, info];
++}
++static void remote_changed(void) { if (g_layer) dispatch_async(dispatch_get_main_queue(), ^{ remote_status(); }); }   // the receiver's thread
++static int remote_input_on(void) { return g_input_on; }
++static void kmap_changed(void) { keys_release(); }   // a held key may press something else now
++static NSWindow *pair_window;
++static void show_pair_qr(void) {
++    char uri[256];if(!dm_remote_pair_uri(uri,sizeof uri))return;
++    if(pair_window){[pair_window close];pair_window=nil;}
++    pair_window=[[NSWindow alloc]initWithContentRect:NSMakeRect(0,0,420,470) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
++    pair_window.releasedWhenClosed=NO;pair_window.title=@"Mando NX - Phone pairing";
++    CIFilter *filter=[CIFilter filterWithName:@"CIQRCodeGenerator"];[filter setValue:[@(uri) dataUsingEncoding:NSUTF8StringEncoding] forKey:@"inputMessage"];[filter setValue:@"M" forKey:@"inputCorrectionLevel"];
++    CIImage *im=[filter.outputImage imageByApplyingTransform:CGAffineTransformMakeScale(8,8)];CIContext *ctx=[CIContext contextWithOptions:nil];CGImageRef cg=[ctx createCGImage:im fromRect:im.extent];
++    NSImageView *image=[[NSImageView alloc]initWithFrame:NSMakeRect(40,100,340,340)];image.image=[[NSImage alloc]initWithCGImage:cg size:NSMakeSize(340,340)];image.imageScaling=NSImageScaleProportionallyUpOrDown;CGImageRelease(cg);[pair_window.contentView addSubview:image];
++    NSTextField *caption=[NSTextField wrappingLabelWithString:@"Open Mando NX on your phone and scan this QR. Keep both devices on the same Wi-Fi."];caption.frame=NSMakeRect(24,25,372,55);caption.alignment=NSTextAlignmentCenter;[pair_window.contentView addSubview:caption];[pair_window center];[pair_window makeKeyAndOrderFront:nil];
++}
++@interface DmFrontMenu : NSObject @end
++@implementation DmFrontMenu
++- (void)pair:(id)sender {(void)sender;show_pair_qr();}
++- (void)controls:(id)sender { (void)sender; dm_controls_show(); }
++@end
++
+ // Metal reads MTL_HUD_ENABLED when the process makes its first device, which can be before the window: set from DM_METAL_HUD before main (set in front_run, the HUD did not show)
+ __attribute__((constructor)) static void hud_env(void) { front_hud_env(); }
+ void front_run(void (*guest)(void)) {
+     // A game: tell macOS its work is latency-critical, so the system does not trade its frame time for power while the frame rate is capped
+     static id activity; activity = [[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiated | NSActivityLatencyCritical reason:@"game"];
+-    if (!getenv("DM_WINDOW")) { guest(); return; }
++    if (!getenv("DM_WINDOW")) { dm_remote_start(&g_slots, &g_slots_mu, NULL, NULL); guest(); return; }   // windowless: phones still play (tests), no keyboard
+     @autoreleasepool {
+         [NSApplication sharedApplication];
+         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+@@ -275,7 +309,17 @@ void front_run(void (*guest)(void)) {
+         [app addItemWithTitle:@"Quit " DM_GAME_NAME action:@selector(terminate:) keyEquivalent:@"q"];
+         [[bar addItemWithTitle:@"Window" action:nil keyEquivalent:@""] setSubmenu:wm];
+         [wm addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"].keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
++        static DmFrontMenu *menu_target; menu_target = [DmFrontMenu new];
++        NSMenu *cm = [[NSMenu alloc] initWithTitle:@"Controllers"]; cm.autoenablesItems = NO;
++        [[bar insertItemWithTitle:@"Controllers" action:nil keyEquivalent:@"" atIndex:1] setSubmenu:cm];
++        [cm addItemWithTitle:@"Keyboard Controls\xe2\x80\xa6" action:@selector(controls:) keyEquivalent:@"k"].target = menu_target;
++        [cm addItemWithTitle:@"Phone Pairing QR..." action:@selector(pair:) keyEquivalent:@"j"].target=menu_target;
++        [cm addItem:NSMenuItem.separatorItem];
++        g_wifi_item = [cm addItemWithTitle:@"Wi-Fi controllers: off (DM_REMOTE=1 turns them on)" action:nil keyEquivalent:@""]; g_wifi_item.enabled = NO;
++        g_phones_item = [cm addItemWithTitle:@"" action:nil keyEquivalent:@""]; g_phones_item.enabled = NO; g_phones_item.hidden = YES;
+         NSApp.mainMenu = bar;
++        dm_kbd_load(&g_kmap);
++        dm_controls_init(&g_kmap, kmap_changed);
+         const char *fs = getenv("DM_FULLSCREEN");   // 1 (or any value but 0): start in fullscreen; 0, the settings window's Window, or unset: a window
+         if (fs && strcmp(fs, "0")) dispatch_async(dispatch_get_main_queue(), ^{ [win toggleFullScreen:nil]; });
+         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
+@@ -285,8 +329,10 @@ void front_run(void (*guest)(void)) {
+                 pads_changed(conn ? nil : c); }];
+         dm_haptics_apple_init();
+         pads_start();
+-        [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp handler:^NSEvent *(NSEvent *e) {
++        if (dm_remote_start(&g_slots, &g_slots_mu, remote_input_on, remote_changed)) { g_phones_item.hidden = NO; remote_status(); if(getenv("DM_REMOTE_QR") && !strcmp(getenv("DM_REMOTE_QR"),"1"))show_pair_qr(); }   // after the keyboard took its player
++        [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged handler:^NSEvent *(NSEvent *e) {
+             if (e.window != win) return e;   // Only swallow keys for the game window; other windows such as the software keyboard input box receive typing as usual
++            if (e.type == NSEventTypeFlagsChanged) { on_flags(e); return e; }
+             if (e.type == NSEventTypeKeyDown && (e.modifierFlags & NSEventModifierFlagCommand)) return e;   // ⌘ shortcuts go to the menu; a key released while ⌘ is held still reaches the game, or it would stay pressed
+             if (!e.isARepeat) on_key(e, e.type == NSEventTypeKeyDown);
+             return nil;   // Swallow it to avoid the system beep
+@@ -352,7 +398,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
+     dispatch_sync(dispatch_get_main_queue(), ^{
+         // The box takes the keyboard and the mouse, so the game window never sees the key-up of the button or the touch-up of the click that opened it: nothing may stay pressed
+         // while it is up, or the game reads the stuck button / touch the moment the box closes (Stardew Valley's character creation re-opened the keyboard endlessly)
+-        g_btn = 0; g_w = g_a = g_s = g_d = 0; push();
++        keys_release();
+         dm_touch_set(NULL, 0);
+         int min_chars = g_swkbd_min_chars > 0 ? g_swkbd_min_chars : 0;
+         NSString *info = [NSString stringWithFormat:@"%s%s%s", sub ? sub : "", sub && *sub && guide && *guide ? "\n" : "", guide ? guide : ""];
+diff --git a/dm/host/haptics_apple.h b/dm/host/haptics_apple.h
+index 2fd1b0f..347cd1b 100644
+--- a/dm/host/haptics_apple.h
++++ b/dm/host/haptics_apple.h
+@@ -5,3 +5,6 @@
+ void dm_haptics_apple_init(void);
+ void dm_haptics_apple_controller(int player, GCController *controller);
+ void dm_haptics_apple_shutdown(void);
++
++// Optional external sink for a network controller; snapshots run on the haptics queue.
++void dm_haptics_apple_external(int player, void (*sink)(dm_haptic_state));
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index 18951a1..a5dbf8f 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -300,9 +300,16 @@ static BOOL ds4_route(int p, GCController *controller) {
+ }
+ #endif
+ 
++static void (*external_sink[DM_PLAYERS])(dm_haptic_state);
++void dm_haptics_apple_external(int p, void (*sink)(dm_haptic_state)) {
++    if(p<0 || p>=DM_PLAYERS)return;
++    dm_haptics_apple_init();
++    dispatch_async(queue, ^{external_sink[p]=sink; dm_haptics_route(p, sink!=NULL);});
++}
+ static void apply(dm_haptic_state s) {
+     dispatch_async(queue, ^{ @autoreleasepool {
+         if (s.epoch != dm_haptics_epoch(s.player)) return;
++        if(external_sink[s.player]) {external_sink[s.player](s);return;}
+         NSArray<DmRumbleChannel *> *out = channels[s.player];
+ #if !TARGET_OS_IPHONE
+         if ([out.firstObject isKindOfClass:DmDs4Channel.class]) { ds4_apply(s); return; }
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index 148fdb3..91e446f 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -198,6 +198,14 @@ static uint32_t unsupported_players(void) {
+ }
+ static int one_player(void) { return !(atomic_load(&g_ids_supported) & ((1u << DM_PLAYERS) - 2)); }
+ static uint32_t merged_players(void) { return one_player() ? unsupported_players() : 0; }
++int dm_hid_player_use(int p) { return p < 0 || p >= DM_PLAYERS ? 0 : reported(p) ? 1 : one_player() ? 2 : 0; }
++int dm_hid_seats(void) {
++    uint32_t m = atomic_load(&g_ids_supported);
++    if (m >> 8 & 1) m |= 1;   // Handheld is player 1 too
++    int n = __builtin_popcount(m & ((1u << DM_PLAYERS) - 1));
++    return n ? n : 1;
++}
++uint32_t dm_hid_players(void) { return atomic_load(&g_players); }
+ static int player_of(uint32_t id) {   // the reported player on npad id; -1 when none
+     if (id == connected_id()) return 0;
+     return id > 0 && id < DM_PLAYERS && reported((int)id) ? (int)id : -1;
+diff --git a/dm/host/kbd_map.h b/dm/host/kbd_map.h
+new file mode 100644
+index 0000000..5c901f3
+--- /dev/null
++++ b/dm/host/kbd_map.h
+@@ -0,0 +1,136 @@
++// The Mac keyboard map (front_mac.m; pure, so tests/t_kbd_map.c checks it): which key presses which button or tilts which stick. Keys are macOS virtual key codes (the key's
++// position, whatever the layout prints on it), named as on a US keyboard. The built-in map is the one the front end always had: WASD left stick, arrow keys D-pad, J=A K=B U=X
++// I=Y, Q=L E=R, Z=ZL C=ZR, F / G press the sticks, Return=+ Tab=−, Space shakes the controller; the right stick has no keys.
++// A map file (controls_mac.m: DM_KBD_MAP, else ~/Library/Application Support/nxnative/keyboard.txt; the Keyboard Controls window writes it) has one line per action,
++// "<action>=<key>[,<key>…]" ("A=J", "RStickUp=" for none, "#" starts a comment). An action the file names gets exactly the keys it lists; the others keep the built-in keys, and a
++// key the file gives to an action is taken from any other. A key presses one action. Command, Caps Lock and Fn are not offered: Command is the menus' (⌘Q, ⌘K).
++#pragma once
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++#include <strings.h>
++#include "dm_input.h"
++
++enum { KBD_KEYS = 128, KBD_ACTIONS = 25 };
++typedef struct { const char *name, *label; uint64_t bit; int dir; } kbd_action;   // dir 1..8: left stick up down left right, right stick up down left right
++static const kbd_action KBD_ACTION[KBD_ACTIONS] = {
++    {"A", "A", DM_BTN_A, 0}, {"B", "B", DM_BTN_B, 0}, {"X", "X", DM_BTN_X, 0}, {"Y", "Y", DM_BTN_Y, 0},
++    {"L", "L", DM_BTN_L, 0}, {"R", "R", DM_BTN_R, 0}, {"ZL", "ZL", DM_BTN_ZL, 0}, {"ZR", "ZR", DM_BTN_ZR, 0},
++    {"Plus", "+ (Plus)", DM_BTN_PLUS, 0}, {"Minus", "\xe2\x88\x92 (Minus)", DM_BTN_MINUS, 0}, {"LS", "Left stick press", DM_BTN_LS, 0}, {"RS", "Right stick press", DM_BTN_RS, 0},
++    {"DpadUp", "D-pad up", DM_BTN_UP, 0}, {"DpadDown", "D-pad down", DM_BTN_DOWN, 0}, {"DpadLeft", "D-pad left", DM_BTN_LEFT, 0}, {"DpadRight", "D-pad right", DM_BTN_RIGHT, 0},
++    {"LStickUp", "Left stick up", 0, 1}, {"LStickDown", "Left stick down", 0, 2}, {"LStickLeft", "Left stick left", 0, 3}, {"LStickRight", "Left stick right", 0, 4},
++    {"RStickUp", "Right stick up", 0, 5}, {"RStickDown", "Right stick down", 0, 6}, {"RStickLeft", "Right stick left", 0, 7}, {"RStickRight", "Right stick right", 0, 8},
++    {"Shake", "Shake the controller", DM_BTN_SHAKE, 0},
++};
++// macOS virtual key codes (Carbon's kVK_*) and their names; codes without a name here cannot be mapped
++static const struct { uint8_t code; const char *name; } KBD_KEY[] = {
++    {0, "A"}, {11, "B"}, {8, "C"}, {2, "D"}, {14, "E"}, {3, "F"}, {5, "G"}, {4, "H"}, {34, "I"}, {38, "J"}, {40, "K"}, {37, "L"}, {46, "M"}, {45, "N"}, {31, "O"}, {35, "P"},
++    {12, "Q"}, {15, "R"}, {1, "S"}, {17, "T"}, {32, "U"}, {9, "V"}, {13, "W"}, {7, "X"}, {16, "Y"}, {6, "Z"},
++    {29, "0"}, {18, "1"}, {19, "2"}, {20, "3"}, {21, "4"}, {23, "5"}, {22, "6"}, {26, "7"}, {28, "8"}, {25, "9"},
++    {27, "Minus"}, {24, "Equal"}, {33, "LeftBracket"}, {30, "RightBracket"}, {42, "Backslash"}, {41, "Semicolon"}, {39, "Quote"}, {43, "Comma"}, {47, "Period"}, {44, "Slash"},
++    {50, "Grave"}, {10, "Section"}, {36, "Return"}, {48, "Tab"}, {49, "Space"}, {51, "Delete"}, {53, "Escape"}, {117, "ForwardDelete"}, {114, "Help"},
++    {115, "Home"}, {119, "End"}, {116, "PageUp"}, {121, "PageDown"}, {123, "LeftArrow"}, {124, "RightArrow"}, {125, "DownArrow"}, {126, "UpArrow"},
++    {56, "LeftShift"}, {60, "RightShift"}, {59, "LeftControl"}, {62, "RightControl"}, {58, "LeftOption"}, {61, "RightOption"},
++    {122, "F1"}, {120, "F2"}, {99, "F3"}, {118, "F4"}, {96, "F5"}, {97, "F6"}, {98, "F7"}, {100, "F8"}, {101, "F9"}, {109, "F10"}, {103, "F11"}, {111, "F12"},
++    {105, "F13"}, {107, "F14"}, {113, "F15"}, {106, "F16"}, {64, "F17"}, {79, "F18"}, {80, "F19"}, {90, "F20"},
++    {82, "Keypad0"}, {83, "Keypad1"}, {84, "Keypad2"}, {85, "Keypad3"}, {86, "Keypad4"}, {87, "Keypad5"}, {88, "Keypad6"}, {89, "Keypad7"}, {91, "Keypad8"}, {92, "Keypad9"},
++    {65, "KeypadDecimal"}, {67, "KeypadMultiply"}, {69, "KeypadPlus"}, {71, "KeypadClear"}, {75, "KeypadDivide"}, {76, "KeypadEnter"}, {78, "KeypadMinus"}, {81, "KeypadEquals"},
++};
++enum { KBD_NKEYS = sizeof KBD_KEY / sizeof KBD_KEY[0] };
++static const char *kbd_key_name(int code) { for (int i = 0; i < KBD_NKEYS; i++) if (KBD_KEY[i].code == code) return KBD_KEY[i].name; return NULL; }
++static int kbd_key_code(const char *name) { for (int i = 0; i < KBD_NKEYS; i++) if (!strcasecmp(KBD_KEY[i].name, name)) return KBD_KEY[i].code; return -1; }
++static int kbd_action_of(const char *name) { for (int i = 0; i < KBD_ACTIONS; i++) if (!strcasecmp(KBD_ACTION[i].name, name)) return i; return -1; }
++
++typedef struct { uint8_t act[KBD_KEYS]; } kbd_map;    // per key code: its action + 1, 0 = none
++typedef struct { uint8_t down[KBD_KEYS]; } kbd_keys;  // the keys held now
++
++static void kbd_set(kbd_map *m, int code, int action) { if (code >= 0 && code < KBD_KEYS) m->act[code] = (uint8_t)(action < 0 ? 0 : action + 1); }
++static void kbd_clear_action(kbd_map *m, int action) { for (int k = 0; k < KBD_KEYS; k++) if (m->act[k] == action + 1) m->act[k] = 0; }
++static int kbd_keys_of(const kbd_map *m, int action, int *codes, int max) {   // the action's keys, in key code order
++    int n = 0; for (int k = 0; k < KBD_KEYS; k++) if (m->act[k] == action + 1) { if (n < max) codes[n] = k; n++; }
++    return n;
++}
++static void kbd_default(kbd_map *m) {
++    static const char *const def[][2] = {
++        {"A", "J"}, {"B", "K"}, {"X", "U"}, {"Y", "I"}, {"L", "Q"}, {"R", "E"}, {"ZL", "Z"}, {"ZR", "C"}, {"Plus", "Return"}, {"Minus", "Tab"}, {"LS", "F"}, {"RS", "G"},
++        {"DpadUp", "UpArrow"}, {"DpadDown", "DownArrow"}, {"DpadLeft", "LeftArrow"}, {"DpadRight", "RightArrow"},
++        {"LStickUp", "W"}, {"LStickDown", "S"}, {"LStickLeft", "A"}, {"LStickRight", "D"}, {"Shake", "Space"},
++    };
++    memset(m, 0, sizeof *m);
++    for (size_t i = 0; i < sizeof def / sizeof def[0]; i++) kbd_set(m, kbd_key_code(def[i][1]), kbd_action_of(def[i][0]));
++}
++static int kbd_is_default(const kbd_map *m) { kbd_map d; kbd_default(&d); return !memcmp(m, &d, sizeof d); }
++
++// A map file's text over the built-in map. Returns the number of lines it could not take (warn gets each, with its line number); those lines change nothing
++static int kbd_parse(kbd_map *m, const char *text, void (*warn)(void *ctx, int line, const char *msg), void *ctx) {
++    int bad = 0, ln = 0; char line[512], msg[160];
++    kbd_default(m);
++    for (const char *p = text; p && *p; ) {
++        const char *nl = strchr(p, '\n'); size_t n = nl ? (size_t)(nl - p) : strlen(p);
++        ln++;
++        if (n >= sizeof line) { bad++; if (warn) warn(ctx, ln, "line too long"); p = nl ? nl + 1 : NULL; continue; }
++        memcpy(line, p, n); line[n] = 0; p = nl ? nl + 1 : NULL;
++        char *hash = strchr(line, '#'); if (hash) *hash = 0;
++        char *s = line; while (*s == ' ' || *s == '\t' || *s == '\r') s++;
++        char *e = s + strlen(s); while (e > s && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r')) *--e = 0;
++        if (!*s) continue;
++        char *eq = strchr(s, '=');
++        if (!eq) { bad++; if (warn) warn(ctx, ln, "not <action>=<key>[,<key>]"); continue; }
++        *eq = 0; char *an = s; e = eq; while (e > an && (e[-1] == ' ' || e[-1] == '\t')) *--e = 0;
++        int a = kbd_action_of(an);
++        if (a < 0) { bad++; snprintf(msg, sizeof msg, "unknown action '%s'", an); if (warn) warn(ctx, ln, msg); continue; }
++        int codes[16], nc = 0, ok = 1;
++        for (char *k = eq + 1; k && ok;) {
++            char *comma = strchr(k, ','); if (comma) *comma = 0;
++            while (*k == ' ' || *k == '\t') k++;
++            char *ke = k + strlen(k); while (ke > k && (ke[-1] == ' ' || ke[-1] == '\t')) *--ke = 0;
++            if (*k) {
++                int c = kbd_key_code(k);
++                if (c < 0) { ok = 0; snprintf(msg, sizeof msg, "unknown key '%s'", k); }
++                else if (nc < 16) codes[nc++] = c;
++            }
++            k = comma ? comma + 1 : NULL;
++        }
++        if (!ok) { bad++; if (warn) warn(ctx, ln, msg); continue; }
++        kbd_clear_action(m, a);
++        for (int i = 0; i < nc; i++) kbd_set(m, codes[i], a);
++    }
++    return bad;
++}
++// The map as a file: every action, its keys (none: nothing after the =)
++static size_t kbd_format(const kbd_map *m, char *out, size_t cap) {
++    size_t n = 0;
++    #define KBD_PUT(...) do { int w_ = snprintf(out + n, n < cap ? cap - n : 0, __VA_ARGS__); if (w_ > 0) n += (size_t)w_; } while (0)
++    KBD_PUT("# nxnative keyboard map (Mac): <action>=<key>[,<key>], keys by their US-keyboard name. Written by the Keyboard Controls window (Controllers menu, Command-K).\n");
++    for (int a = 0; a < KBD_ACTIONS; a++) {
++        int codes[KBD_KEYS], nc = kbd_keys_of(m, a, codes, KBD_KEYS);
++        KBD_PUT("%s=", KBD_ACTION[a].name);
++        for (int i = 0; i < nc; i++) KBD_PUT("%s%s", i ? "," : "", kbd_key_name(codes[i]) ? kbd_key_name(codes[i]) : "?");
++        KBD_PUT("\n");
++    }
++    #undef KBD_PUT
++    return n < cap ? n : (cap ? cap - 1 : 0);
++}
++// The buttons and sticks the held keys make. A stick key tilts all the way; opposite keys cancel; two directions held make a diagonal of both axes at full tilt, as always
++static void kbd_compose(const kbd_map *m, const kbd_keys *k, uint64_t *buttons, int32_t ax[4]) {
++    int dir[9] = {0}; uint64_t b = 0;
++    for (int c = 0; c < KBD_KEYS; c++) if (k->down[c] && m->act[c]) {
++        const kbd_action *a = &KBD_ACTION[m->act[c] - 1];
++        if (a->dir) dir[a->dir] = 1; else b |= a->bit;
++    }
++    *buttons = b;
++    ax[0] = (dir[4] - dir[3]) * DM_STICK_MAX; ax[1] = (dir[1] - dir[2]) * DM_STICK_MAX;
++    ax[2] = (dir[8] - dir[7]) * DM_STICK_MAX; ax[3] = (dir[5] - dir[6]) * DM_STICK_MAX;
++}
++// Shift, Control and Option come as flag changes, not key presses: whether `code` is held, from the event's modifier flags (the left / right device bits of NSEvent's
++// modifierFlags, with the plain Shift / Control / Option bit when a keyboard gives no device bits). Returns 0 for a key that is not one of these six
++static int kbd_modifier(int code, uint64_t flags, int *down) {
++    static const struct { int code; uint64_t dev, pair, any; } mods[] = {
++        {56, 0x2, 0x6, 1u << 17}, {60, 0x4, 0x6, 1u << 17}, {59, 0x1, 0x2001, 1u << 18}, {62, 0x2000, 0x2001, 1u << 18}, {58, 0x20, 0x60, 1u << 19}, {61, 0x40, 0x60, 1u << 19},
++    };
++    for (size_t i = 0; i < sizeof mods / sizeof mods[0]; i++) if (mods[i].code == code) {
++        *down = (flags & mods[i].pair) ? (flags & mods[i].dev) != 0 : (flags & mods[i].any) != 0;
++        return 1;
++    }
++    return 0;
++}
+diff --git a/dm/host/pad_slots.h b/dm/host/pad_slots.h
+index fa7058e..3dd6aa6 100644
+--- a/dm/host/pad_slots.h
++++ b/dm/host/pad_slots.h
+@@ -16,17 +16,20 @@ static int pad_slot_of(const pad_slots *s, const void *owner) {
+     for (int i = 0; owner && i < DM_PLAYERS; i++) if (s->owner[i] == owner) return i;
+     return -1;
+ }
+-static int pad_slot_take(pad_slots *s, const void *owner, const char *name) {
++// The same order within the first n slots only (players 1..n): Wi-Fi controllers (remote_mac.c) with DM_REMOTE_PLAYERS=4 stay within a four-player game's players
++static int pad_slot_take_in(pad_slots *s, const void *owner, const char *name, int n) {
+     int p = pad_slot_of(s, owner); if (p >= 0 || !owner) return p;
+     if (!name) name = "";
+-    for (int i = 0; p < 0 && *name && i < DM_PLAYERS; i++) if (!s->owner[i] && !strcmp(s->last[i], name)) p = i;
+-    if (p < 0 && !s->owner[0]) p = 0;
+-    for (int i = 0; p < 0 && i < DM_PLAYERS; i++) if (!s->owner[i] && !s->last[i][0]) p = i;
+-    for (int i = 0; p < 0 && i < DM_PLAYERS; i++) if (!s->owner[i]) p = i;
++    if (n > DM_PLAYERS) n = DM_PLAYERS;
++    for (int i = 0; p < 0 && *name && i < n; i++) if (!s->owner[i] && !strcmp(s->last[i], name)) p = i;
++    if (p < 0 && n > 0 && !s->owner[0]) p = 0;
++    for (int i = 0; p < 0 && i < n; i++) if (!s->owner[i] && !s->last[i][0]) p = i;
++    for (int i = 0; p < 0 && i < n; i++) if (!s->owner[i]) p = i;
+     if (p < 0) return -1;
+     s->owner[p] = owner; snprintf(s->last[p], sizeof s->last[p], "%s", name);
+     return p;
+ }
++static int pad_slot_take(pad_slots *s, const void *owner, const char *name) { return pad_slot_take_in(s, owner, name, DM_PLAYERS); }
+ static int pad_slot_free(pad_slots *s, const void *owner) {
+     int p = pad_slot_of(s, owner); if (p >= 0) s->owner[p] = NULL;
+     return p;
+diff --git a/dm/host/remote_mac.c b/dm/host/remote_mac.c
+new file mode 100644
+index 0000000..19201e7
+--- /dev/null
++++ b/dm/host/remote_mac.c
+@@ -0,0 +1,164 @@
++// Wi-Fi controllers on the Mac (remote_mac.h; protocol and sessions in remote_proto.h, docs/wifi-controllers.md): with DM_REMOTE=1 one IPv4 UDP socket and one thread take the
++// phones' datagrams, polling every 20 ms for the session timers. Off by default: without DM_REMOTE=1 no socket is opened.
++//   DM_REMOTE_PORT (default 47800; 0 = any free port, for tests), DM_REMOTE_BIND (the address to listen on, default every IPv4 address of this Mac),
++//   DM_REMOTE_CODE (the pairing code, 4-32 letters and digits; a random 6-digit one for this start when unset), DM_REMOTE_PLAYERS (the highest player a phone may be, default 8:
++//   4 keeps phones within a four-player game), DM_REMOTE_TIMEOUT_MS (a silent phone loses its session after this long, default 5000; its buttons are released after 500 ms).
++#include "dm.h"
++#include "remote_mac.h"
++#include "remote_proto.h"
++#include "hle_haptics.h"
++extern void dm_haptics_apple_external(int, void (*)(dm_haptic_state));
++#include <arpa/inet.h>
++#include <errno.h>
++#include <ifaddrs.h>
++#include <net/if.h>
++#include <netinet/in.h>
++#include <poll.h>
++#include <stdatomic.h>
++#include <sys/socket.h>
++#include <unistd.h>
++
++static rp_server g_srv;
++static pthread_mutex_t g_srv_mu = PTHREAD_MUTEX_INITIALIZER;   // the sessions: the receiver's thread, the status queries and dm_remote_stop
++static int g_fd = -1, g_max = DM_PLAYERS;
++static _Atomic int g_on, g_stopped;
++static uint16_t g_port;
++static char g_where[64];   // the address phones connect to
++static pad_slots *g_slots; static pthread_mutex_t *g_slots_mu;
++static int (*g_input_on)(void); static void (*g_changed)(void);
++
++static int h_take(void *ctx, const void *owner, const char *name) {
++    (void)ctx;
++    pthread_mutex_lock(g_slots_mu);
++    int p = pad_slot_take_in(g_slots, owner, name, g_max);
++    if (p >= 0) dm_pad_players(pad_slot_mask(g_slots));
++    pthread_mutex_unlock(g_slots_mu);
++    return p;
++}
++static void h_drop(void *ctx, const void *owner) {
++    (void)ctx;
++    pthread_mutex_lock(g_slots_mu);
++    pad_slot_free(g_slots, owner); dm_pad_players(pad_slot_mask(g_slots));
++    pthread_mutex_unlock(g_slots_mu);
++}
++static void h_set(void *ctx, int p, uint64_t b, int32_t lx, int32_t ly, int32_t rx, int32_t ry) { (void)ctx; dm_pad_set_player(p, b, lx, ly, rx, ry); }
++static int h_input_on(void *ctx) { (void)ctx; return !g_input_on || g_input_on(); }
++static void h_say(void *ctx, const char *line) { (void)ctx; LOG("%s", line); }
++static void h_changed(void *ctx) { (void)ctx; if (g_changed) g_changed(); }
++static void h_random(void *ctx, void *buf, size_t n) { (void)ctx; arc4random_buf(buf, n); }
++
++static void remote_rumble(dm_haptic_state state) {
++    dm_haptic_level level=dm_haptics_level(state.motor,2,1);
++    pthread_mutex_lock(&g_srv_mu);
++    rp_rumble_level(&g_srv,state.player,level.intensity,level.sharpness);
++    pthread_mutex_unlock(&g_srv_mu);
++}
++static void h_route(void *ctx,int player,int on) {(void)ctx;dm_haptics_apple_external(player,on?remote_rumble:NULL);}
++static void h_game(void *ctx, int p, rp_game *g) { (void)ctx; int u = dm_hid_player_use(p); g->use = u == 1 ? RP_USE_OWN : u == 2 ? RP_USE_P1 : RP_USE_OFF; g->seats = dm_hid_seats(); g->taken = dm_hid_players(); }
++static void send_to(rp_addr a, const char *text, size_t n) {
++    if (!n || g_fd < 0) return;
++    struct sockaddr_in sa = {.sin_len = sizeof sa, .sin_family = AF_INET, .sin_port = a.port, .sin_addr.s_addr = a.ip};
++    (void)sendto(g_fd, text, n, 0, (struct sockaddr *)&sa, sizeof sa);
++}
++static void *rx_main(void *arg) {
++    (void)arg;
++    char buf[1536], out[256]; rp_reply rep[RP_SESSIONS * 3];   // an ack, a rumble and an info per phone at most
++    while (!atomic_load(&g_stopped)) {
++        struct pollfd pfd = {g_fd, POLLIN, 0};
++        int r = poll(&pfd, 1, 20);
++        pthread_mutex_lock(&g_srv_mu);
++        for (int i = 0; r > 0 && i < 64; i++) {   // what has arrived, then the timers
++            struct sockaddr_in sa; socklen_t len = sizeof sa;
++            ssize_t n = recvfrom(g_fd, buf, sizeof buf, MSG_DONTWAIT, (struct sockaddr *)&sa, &len);
++            if (n < 0) break;
++            if (len < (socklen_t)sizeof sa || sa.sin_family != AF_INET) continue;
++            rp_addr from = {sa.sin_addr.s_addr, sa.sin_port};
++            size_t k = rp_packet(&g_srv, buf, (size_t)n, from, now_ns(), out, sizeof out);
++            send_to(from, out, k);
++        }
++        int k = rp_tick(&g_srv, now_ns(), rep, (int)(sizeof rep / sizeof rep[0]));
++        for (int i = 0; i < k; i++) send_to(rep[i].to, rep[i].text, rep[i].n);
++        pthread_mutex_unlock(&g_srv_mu);
++    }
++    return NULL;
++}
++void dm_remote_stop(void) {
++    if (!atomic_load(&g_on) || atomic_exchange(&g_stopped, 1)) return;
++    rp_reply rep[RP_SESSIONS];
++    pthread_mutex_lock(&g_srv_mu);
++    int k = rp_close_all(&g_srv, rep, RP_SESSIONS);
++    for (int i = 0; i < k; i++) send_to(rep[i].to, rep[i].text, rep[i].n);
++    pthread_mutex_unlock(&g_srv_mu);
++}
++static long env_num(const char *name, long def, long lo, long hi) {
++    const char *e = getenv(name); if (!e || !*e) return def;
++    char *end; long v = strtol(e, &end, 10);
++    if (*end || v < lo || v > hi) { LOG("[RED] %s=%s is not a number from %ld to %ld: using %ld", name, e, lo, hi, def); return def; }
++    return v;
++}
++int dm_remote_start(pad_slots *slots, pthread_mutex_t *mu, int (*input_on)(void), void (*changed)(void)) {
++    const char *e = getenv("DM_REMOTE");
++    if (!e || strcmp(e, "1") || atomic_load(&g_on)) return atomic_load(&g_on);
++    g_slots = slots; g_slots_mu = mu; g_input_on = input_on; g_changed = changed;
++    long port = env_num("DM_REMOTE_PORT", RP_PORT, 0, 65535);
++    g_max = (int)env_num("DM_REMOTE_PLAYERS", DM_PLAYERS, 1, DM_PLAYERS);
++    long timeout = env_num("DM_REMOTE_TIMEOUT_MS", RP_TIMEOUT_MS, 200, 60000);
++    char code[33]; const char *c = getenv("DM_REMOTE_CODE"); int own_code = !(c && *c);
++    if (c && *c && !rp_code_ok(c)) { LOG("[RED] DM_REMOTE_CODE must be 4 to 32 letters and digits: using a random code for this start"); own_code = 1; }
++    if (own_code) snprintf(code, sizeof code, "%06u", arc4random_uniform(1000000)); else snprintf(code, sizeof code, "%s", c);
++    struct in_addr bind_ip = {INADDR_ANY};
++    const char *b = getenv("DM_REMOTE_BIND");
++    if (b && *b && inet_pton(AF_INET, b, &bind_ip) != 1) { LOG("[RED] DM_REMOTE_BIND=%s is not an IPv4 address: Wi-Fi controllers are off", b); return 0; }
++    int fd = socket(AF_INET, SOCK_DGRAM, 0);
++    struct sockaddr_in sa = {.sin_len = sizeof sa, .sin_family = AF_INET, .sin_port = htons((uint16_t)port), .sin_addr = bind_ip};
++    if (fd < 0 || bind(fd, (struct sockaddr *)&sa, sizeof sa)) {
++        LOG("[RED] Wi-Fi controllers: cannot listen on UDP port %ld (%s; another host running?): they are off", port, strerror(errno));
++        if (fd >= 0) close(fd);
++        return 0;
++    }
++    socklen_t len = sizeof sa; getsockname(fd, (struct sockaddr *)&sa, &len); g_port = ntohs(sa.sin_port);
++    g_fd = fd;
++    rp_hooks h = {h_take, h_drop, h_set, h_input_on, h_say, h_changed, h_random, NULL, h_route, h_game};
++    rp_init(&g_srv, code, (uint32_t)timeout, &h);
++    rp_set_game(&g_srv, DM_GAME_NAME);
++    // Where phones connect: the bound address, or each IPv4 address of this Mac's interfaces (the Wi-Fi / Ethernet ones first)
++    char addrs[256] = ""; size_t an = 0;
++    if (bind_ip.s_addr != INADDR_ANY) { inet_ntop(AF_INET, &bind_ip, g_where, sizeof g_where); snprintf(addrs, sizeof addrs, "%s", g_where); }
++    else {
++        struct ifaddrs *ifs = NULL;
++        if (!getifaddrs(&ifs)) for (int pass = 0; pass < 2; pass++) for (struct ifaddrs *i = ifs; i; i = i->ifa_next) {
++            if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET || !(i->ifa_flags & IFF_UP) || (i->ifa_flags & IFF_LOOPBACK)) continue;
++            if ((strncmp(i->ifa_name, "en", 2) != 0) != pass) continue;
++            char ip[INET_ADDRSTRLEN]; inet_ntop(AF_INET, &((struct sockaddr_in *)i->ifa_addr)->sin_addr, ip, sizeof ip);
++            if (!g_where[0] && strncmp(ip, "169.254.", 8)) snprintf(g_where, sizeof g_where, "%s", ip);
++            int w = snprintf(addrs + an, sizeof addrs - an, "%s%s (%s)", an ? ", " : "", ip, i->ifa_name);
++            if (w > 0 && (size_t)w < sizeof addrs - an) an += (size_t)w;
++        }
++        if (ifs) freeifaddrs(ifs);
++        if (!g_where[0]) snprintf(g_where, sizeof g_where, "this Mac's IP address");
++    }
++    LOG("Wi-Fi controllers on (DM_REMOTE=1): UDP port %u, phones up to player %d, a silent phone is released after %lld ms and loses its player after %ld ms",
++        g_port, g_max, (long long)(g_srv.hold_ns / 1000000), timeout);
++    LOG("Wi-Fi controllers: connect phones to %s, port %u, pairing code %s", addrs[0] ? addrs : g_where, g_port,
++        own_code ? code : "from DM_REMOTE_CODE (shown by the launcher and the Controllers menu)");
++    atomic_store(&g_on, 1);
++    pthread_t th;
++    if (pthread_create(&th, NULL, rx_main, NULL)) { LOG("[RED] Wi-Fi controllers: no receiver thread"); atomic_store(&g_on, 0); close(fd); g_fd = -1; return 0; }
++    pthread_detach(th);
++    atexit(dm_remote_stop);
++    return 1;
++}
++int dm_remote_info(char *out, size_t cap) {
++    if (!atomic_load(&g_on)) { if (cap) out[0] = 0; return 0; }
++    snprintf(out, cap, "%s:%u, code %s", g_where, g_port, g_srv.code);
++    return 1;
++}
++void dm_remote_players(char *out, size_t cap) {
++    if (!cap) return;
++    out[0] = 0;
++    if (!atomic_load(&g_on)) return;
++    pthread_mutex_lock(&g_srv_mu); rp_players(&g_srv, out, cap); pthread_mutex_unlock(&g_srv_mu);
++}
++uint16_t dm_remote_port(void) { return atomic_load(&g_on) ? g_port : 0; }
++
++int dm_remote_pair_uri(char *out,size_t cap){if(!atomic_load(&g_on))return 0;return (int)rp_pair_uri(out,cap,g_where,g_port,g_srv.code);}
+diff --git a/dm/host/remote_mac.h b/dm/host/remote_mac.h
+new file mode 100644
+index 0000000..904abf8
+--- /dev/null
++++ b/dm/host/remote_mac.h
+@@ -0,0 +1,19 @@
++// Wi-Fi controllers on the Mac (remote_mac.c; protocol and sessions in remote_proto.h, docs/wifi-controllers.md). Off unless DM_REMOTE=1.
++// The phones take player slots from the front end's table (pad_slots.h), the one its physical controllers take theirs from, under the front end's lock, so a phone and a
++// controller never hold one player.
++#pragma once
++#include <pthread.h>
++#include <stddef.h>
++#include <stdint.h>
++#include "pad_slots.h"
++
++// Starts the receiver when DM_REMOTE=1 (returns 1 when it listens). slots / mu: the front end's slot table and its lock; input_on: 0 while the game window is not key
++// (NULL = always on); changed: called on the receiver's thread when a phone joins or leaves (NULL = nothing). Call once, after the keyboard took its slot (DM_KBD_PLAYER=own)
++int dm_remote_start(pad_slots *slots, pthread_mutex_t *mu, int (*input_on)(void), void (*changed)(void));
++// "192.168.1.23:47800, code 482913": where phones connect, for the window title and the menu; 0 when the receiver is off
++int dm_remote_info(char *out, size_t cap);
++void dm_remote_players(char *out, size_t cap);   // "Ana (2), Luis (3)", empty when no phone is connected
++uint16_t dm_remote_port(void);                   // the bound port (DM_REMOTE_PORT=0 binds any free one: tests), 0 when off
++void dm_remote_stop(void);                       // tells every phone the host quits and releases their players (also at exit)
++
++int dm_remote_pair_uri(char *out,size_t cap);
+diff --git a/dm/host/remote_proto.h b/dm/host/remote_proto.h
+new file mode 100644
+index 0000000..4409825
+--- /dev/null
++++ b/dm/host/remote_proto.h
+@@ -0,0 +1,474 @@
++// Wi-Fi controllers (phones running dm/remote_pad; protocol in docs/wifi-controllers.md): the messages and the sessions, pure (no socket, no clock, no globals), so
++// tests/t_remote.c checks them. remote_mac.c owns the socket and its thread and passes the time in; the front end owns the player slots (pad_slots.h), reached through rp_hooks.
++// One JSON object per UDP datagram, at most RP_MAX_PACKET bytes. A phone joins with hello (the pairing code and its own stable id), gets a session id and a player, then sends its
++// whole state (seq, buttons, sticks) 50-60 times a second; that stream is also its heartbeat. The host acks every RP_ACK_MS. Older or repeated seq numbers are dropped; a phone
++// quiet for hold_ns has its buttons released, one quiet for timeout_ns loses its session and its player (kept for its id, pad_slots.h, so a rejoin gets the same player back).
++// Game rumble goes back only to a phone whose hello said "rumble":1 (older apps never get it): the vibration the game sets on that player, as one intensity / sharpness pair
++// (hle_haptics.h dm_haptics_level), sent when it changes and renewed every RP_RUMBLE_KEEP_MS while on, each with a short duration, so a phone that stops hearing stops by itself.
++// Each streaming phone is also told, in info messages, the game's name and what the game makes of its player (its own player, merged into player 1 by a one-player game, not used,
++// or paused while the game window is not key), how many players the game takes and which players have a controller: sent on a change and renewed every RP_INFO_MS.
++#pragma once
++#include <stdint.h>
++#include <stddef.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdarg.h>
++#include <math.h>
++#include "dm_input.h"
++
++enum { RP_VERSION = 1, RP_MAX_PACKET = 512, RP_PORT = 47800, RP_SESSIONS = DM_PLAYERS, RP_HZ = 60 };
++enum { RP_HOLD_MS = 500, RP_TIMEOUT_MS = 5000, RP_ACK_MS = 250 };
++enum { RP_RUMBLE_GAP_MS = 33, RP_RUMBLE_KEEP_MS = 100, RP_RUMBLE_HOLD_MS = 150 };   // at most 30 changes a second; renewed while on; each lasts this long unless renewed
++enum { RP_INFO_MS = 2000, RP_GAME_NAME = 48 };   // info renewed this often (a lost one is replaced); the game's name in it, in bytes at most
++enum { RP_USE_OFF, RP_USE_OWN, RP_USE_P1 };   // what the game makes of a player's controller (rp_game.use)
++enum { RP_FAIL_IPS = 16, RP_FAIL_PER_IP = 5, RP_FAIL_ALL = 30, RP_RATE = 250, RP_KICKS = 20 };   // wrong codes per minute (per address, all); packets per second per session; kicks per second
++enum { RP_ERR = -1, RP_HELLO = 1, RP_STATE, RP_BYE };
++
++typedef struct {
++    int type, version;
++    char code[33], id[33], name[65], sid[17];
++    uint32_t seq, buttons;
++    double ax[4];   // lx ly rx ry, -1..1, y up
++    int64_t ms; int has_ms;
++    int rumble;   // hello: the phone plays game rumble
++} rp_msg;
++
++// ---- JSON: a flat object of strings, numbers, true / false / null (nothing nested), at most 32 members, strings at most 64 bytes
++typedef struct { const char *p, *e; } rp_cur;
++typedef struct { int kind; char s[65]; double d; } rp_val;   // kind: 's' string, 'n' number, 'o' other scalar
++static void rp_ws(rp_cur *c) { while (c->p < c->e && (*c->p == ' ' || *c->p == '\t' || *c->p == '\n' || *c->p == '\r')) c->p++; }
++static int rp_hex4(const char *p, unsigned *v) {
++    *v = 0;
++    for (int i = 0; i < 4; i++) { char h = p[i]; *v <<= 4;
++        if (h >= '0' && h <= '9') *v |= (unsigned)(h - '0'); else if (h >= 'a' && h <= 'f') *v |= (unsigned)(h - 'a' + 10); else if (h >= 'A' && h <= 'F') *v |= (unsigned)(h - 'A' + 10); else return 0; }
++    return 1;
++}
++static int rp_str(rp_cur *c, char *out, size_t cap) {   // 1: a string, unescaped (UTF-8) into out
++    size_t n = 0;
++    if (c->p >= c->e || *c->p != '"') return 0;
++    c->p++;
++    while (c->p < c->e && *c->p != '"') {
++        unsigned ch = (unsigned char)*c->p++;
++        if (ch < 0x20) return 0;
++        if (ch == '\\') {
++            if (c->p >= c->e) return 0;
++            char esc = *c->p++;
++            switch (esc) {
++                case '"': ch = '"'; break; case '\\': ch = '\\'; break; case '/': ch = '/'; break;
++                case 'b': ch = '\b'; break; case 'f': ch = '\f'; break; case 'n': ch = '\n'; break; case 'r': ch = '\r'; break; case 't': ch = '\t'; break;
++                case 'u': {
++                    if (c->e - c->p < 4 || !rp_hex4(c->p, &ch)) return 0;
++                    c->p += 4;
++                    if (ch >= 0xdc00 && ch < 0xe000) return 0;
++                    if (ch >= 0xd800 && ch < 0xdc00) {   // a surrogate pair
++                        unsigned lo;
++                        if (c->e - c->p < 6 || c->p[0] != '\\' || c->p[1] != 'u' || !rp_hex4(c->p + 2, &lo) || lo < 0xdc00 || lo >= 0xe000) return 0;
++                        c->p += 6; ch = 0x10000 + ((ch - 0xd800) << 10) + (lo - 0xdc00);
++                    }
++                    char u[4]; int k = 0;
++                    if (ch < 0x80) u[k++] = (char)ch;
++                    else if (ch < 0x800) { u[k++] = (char)(0xc0 | ch >> 6); u[k++] = (char)(0x80 | (ch & 0x3f)); }
++                    else if (ch < 0x10000) { u[k++] = (char)(0xe0 | ch >> 12); u[k++] = (char)(0x80 | (ch >> 6 & 0x3f)); u[k++] = (char)(0x80 | (ch & 0x3f)); }
++                    else { u[k++] = (char)(0xf0 | ch >> 18); u[k++] = (char)(0x80 | (ch >> 12 & 0x3f)); u[k++] = (char)(0x80 | (ch >> 6 & 0x3f)); u[k++] = (char)(0x80 | (ch & 0x3f)); }
++                    if (n + (size_t)k >= cap) return 0;
++                    memcpy(out + n, u, (size_t)k); n += (size_t)k;
++                    continue;
++                }
++                default: return 0;
++            }
++        }
++        if (n + 1 >= cap) return 0;
++        out[n++] = (char)ch;
++    }
++    if (c->p >= c->e) return 0;
++    c->p++; out[n] = 0;
++    return 1;
++}
++static int rp_num(rp_cur *c, double *d) {   // a JSON number (its grammar checked here, strtod reads it)
++    const char *s = c->p, *p = s;
++    if (p < c->e && *p == '-') p++;
++    if (p >= c->e) return 0;
++    if (*p == '0') p++; else if (*p >= '1' && *p <= '9') { while (p < c->e && *p >= '0' && *p <= '9') p++; } else return 0;
++    if (p < c->e && *p == '.') { p++; const char *f = p; while (p < c->e && *p >= '0' && *p <= '9') p++; if (p == f) return 0; }
++    if (p < c->e && (*p == 'e' || *p == 'E')) { p++; if (p < c->e && (*p == '+' || *p == '-')) p++; const char *f = p; while (p < c->e && *p >= '0' && *p <= '9') p++; if (p == f) return 0; }
++    if (p - s > 40) return 0;
++    char tmp[48]; memcpy(tmp, s, (size_t)(p - s)); tmp[p - s] = 0;
++    *d = strtod(tmp, NULL);
++    if (!isfinite(*d)) return 0;
++    c->p = p;
++    return 1;
++}
++static int rp_lit(rp_cur *c, const char *w) { size_t n = strlen(w); if ((size_t)(c->e - c->p) < n || memcmp(c->p, w, n)) return 0; c->p += n; return 1; }
++static int rp_value(rp_cur *c, rp_val *v) {
++    if (c->p >= c->e) return 0;
++    if (*c->p == '"') { v->kind = 's'; return rp_str(c, v->s, sizeof v->s); }
++    if (*c->p == '-' || (*c->p >= '0' && *c->p <= '9')) { v->kind = 'n'; return rp_num(c, &v->d); }
++    v->kind = 'o';
++    return rp_lit(c, "true") || rp_lit(c, "false") || rp_lit(c, "null");
++}
++static int rp_int(const rp_val *v, double lo, double hi) { return v->kind == 'n' && v->d == floor(v->d) && v->d >= lo && v->d <= hi; }
++static int rp_code_ok(const char *s) { size_t n = strlen(s); if (n < 4 || n > 32) return 0; for (; *s; s++) if (!((*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z'))) return 0; return 1; }
++static int rp_id_ok(const char *s) { size_t n = strlen(s); if (n < 8 || n > 32) return 0; for (; *s; s++) if (!((*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') || *s == '_' || *s == '-')) return 0; return 1; }
++static int rp_sid_ok(const char *s) { if (strlen(s) != 16) return 0; for (; *s; s++) if (!((*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'f'))) return 0; return 1; }
++
++// One datagram → m. Returns the type, or RP_ERR with *why saying what was wrong (for the host's summary of ignored packets)
++static int rp_parse(const char *buf, size_t n, rp_msg *m, const char **why) {
++    static const char *const keys[] = {"v", "t", "code", "id", "name", "sid", "seq", "b", "lx", "ly", "rx", "ry", "ms", "rumble"};
++    enum { K_V, K_T, K_CODE, K_ID, K_NAME, K_SID, K_SEQ, K_B, K_LX, K_LY, K_RX, K_RY, K_MS, K_RUMBLE, K_N };
++    const char *w = "not a JSON object"; uint32_t seen = 0; char type[16] = "";
++    memset(m, 0, sizeof *m); m->type = RP_ERR;
++    if (why) *why = "";
++    if (n > RP_MAX_PACKET) { if (why) *why = "too long"; return RP_ERR; }
++    rp_cur c = {buf, buf + n};
++    rp_ws(&c);
++    if (c.p >= c.e || *c.p != '{') goto bad;
++    c.p++; rp_ws(&c);
++    int members = 0;
++    if (c.p < c.e && *c.p == '}') c.p++;
++    else for (;;) {
++        char key[24]; rp_val v;
++        w = "malformed member";
++        if (++members > 32 || !rp_str(&c, key, sizeof key)) goto bad;
++        rp_ws(&c); if (c.p >= c.e || *c.p != ':') goto bad;
++        c.p++; rp_ws(&c);
++        if (!rp_value(&c, &v)) { w = "malformed value (nested values are not taken)"; goto bad; }
++        int k = 0; while (k < K_N && strcmp(key, keys[k])) k++;
++        if (k < K_N) {
++            if (seen >> k & 1) { w = "a key twice"; goto bad; }
++            seen |= 1u << k; w = "a value of the wrong type or range";
++            switch (k) {
++                case K_V: if (!rp_int(&v, 0, 1e6)) goto bad; m->version = (int)v.d; break;
++                case K_T: if (v.kind != 's' || strlen(v.s) >= sizeof type) goto bad; strcpy(type, v.s); break;
++                case K_CODE: if (v.kind != 's' || strlen(v.s) >= sizeof m->code) goto bad; strcpy(m->code, v.s); break;
++                case K_ID: if (v.kind != 's' || strlen(v.s) >= sizeof m->id) goto bad; strcpy(m->id, v.s); break;
++                case K_NAME: if (v.kind != 's') goto bad; strcpy(m->name, v.s); break;
++                case K_SID: if (v.kind != 's' || strlen(v.s) >= sizeof m->sid) goto bad; strcpy(m->sid, v.s); break;
++                case K_SEQ: if (!rp_int(&v, 0, 4294967295.0)) goto bad; m->seq = (uint32_t)v.d; break;
++                case K_B: if (!rp_int(&v, 0, 0xffff)) goto bad; m->buttons = (uint32_t)v.d; break;
++                case K_MS: if (!rp_int(&v, 0, 9007199254740991.0)) goto bad; m->ms = (int64_t)v.d; m->has_ms = 1; break;
++                case K_RUMBLE: if (!rp_int(&v, 0, 1)) goto bad; m->rumble = (int)v.d; break;
++                default: if (v.kind != 'n') goto bad; m->ax[k - K_LX] = v.d; break;
++            }
++        }
++        rp_ws(&c);
++        if (c.p < c.e && *c.p == ',') { c.p++; rp_ws(&c); continue; }
++        if (c.p < c.e && *c.p == '}') { c.p++; break; }
++        w = "malformed object"; goto bad;
++    }
++    rp_ws(&c);
++    if (c.p != c.e) { w = "bytes after the object"; goto bad; }
++    if (!(seen >> K_V & 1)) { w = "no protocol version (v)"; goto bad; }
++    if (!strcmp(type, "hello")) {
++        if (!(seen >> K_CODE & 1) || !(seen >> K_ID & 1) || !rp_id_ok(m->id)) { w = "hello without a valid code or id"; goto bad; }
++        m->type = RP_HELLO;
++    } else if (!strcmp(type, "state")) {
++        if (!rp_sid_ok(m->sid) || !(seen >> K_SEQ & 1) || !(seen >> K_B & 1)) { w = "state without a valid sid, seq or b"; goto bad; }
++        m->type = RP_STATE;
++    } else if (!strcmp(type, "bye")) {
++        if (!rp_sid_ok(m->sid)) { w = "bye without a valid sid"; goto bad; }
++        m->type = RP_BYE;
++    } else { w = "unknown message type (t)"; goto bad; }
++    return m->type;
++bad:
++    if (why) *why = w;
++    m->type = RP_ERR;
++    return RP_ERR;
++}
++
++// A stick: each axis clamped to -1..1, then the pair to the unit circle (a phone's square corner is not more than a full tilt), to ±DM_STICK_MAX
++static void rp_stick(double x, double y, int32_t *ox, int32_t *oy) {
++    x = fmax(-1.0, fmin(1.0, x)); y = fmax(-1.0, fmin(1.0, y));
++    double r = sqrt(x * x + y * y); if (r > 1.0) { x /= r; y /= r; }
++    *ox = (int32_t)lrint(x * DM_STICK_MAX); *oy = (int32_t)lrint(y * DM_STICK_MAX);
++}
++static int rp_seq_newer(uint32_t seq, uint32_t last) { return (int32_t)(seq - last) > 0; }   // serial number arithmetic: a wrap from 0xffffffff to 0 is newer
++static int rp_code_eq(const char *a, const char *b) {   // the time does not depend on where the codes differ
++    size_t na = strlen(a), nb = strlen(b); unsigned d = na != nb;
++    for (size_t i = 0; i < na && i < nb; i++) d |= (unsigned)(a[i] ^ b[i]);
++    return !d;
++}
++// Text that goes into the log, the menu or a reply: printable UTF-8 only (control bytes, quotes, backslashes and broken sequences dropped), at most `most` bytes, `none` when nothing is left
++static void rp_text_clean(char *out, size_t cap, const char *in, size_t most, const char *none) {
++    size_t n = 0, lim = cap - 1 < most ? cap - 1 : most;
++    for (const unsigned char *p = (const unsigned char *)in; *p;) {
++        int len = *p < 0x80 ? 1 : (*p & 0xe0) == 0xc0 ? 2 : (*p & 0xf0) == 0xe0 ? 3 : (*p & 0xf8) == 0xf0 ? 4 : 0, ok = len > 0;
++        for (int i = 1; ok && i < len; i++) ok = (p[i] & 0xc0) == 0x80;
++        if (!ok) { p++; continue; }
++        if (len == 1 && (*p < 0x20 || *p == 0x7f || *p == '"' || *p == '\\')) { p++; continue; }
++        if (len == 2 && p[0] == 0xc2 && p[1] < 0xa0) { p += 2; continue; }   // C1 controls
++        if (n + (size_t)len > lim) break;
++        memcpy(out + n, p, (size_t)len); n += (size_t)len; p += len;
++    }
++    while (n && out[n - 1] == ' ') n--;
++    size_t lead = 0; while (lead < n && out[lead] == ' ') lead++;
++    memmove(out, out + lead, n - lead); n -= lead;
++    if (!n) { snprintf(out, cap, "%s", none); return; }
++    out[n] = 0;
++}
++static void rp_name_clean(char *out, size_t cap, const char *in) { rp_text_clean(out, cap, in, 32, "phone"); }   // a phone's display name: at most 32 bytes, "phone" when empty
++
++// The pairing URI a QR code carries (the phone app scans it): nxmando://pair?v=1&host=<IPv4>&port=<1-65535>&code=<code>. Returns its length, 0 when an input is not valid
++// (not a dotted IPv4 address of four numbers 0-255, the address 0.0.0.0, a port out of range, a code that rp_code_ok refuses)
++static int rp_ipv4_ok(const char *s) {
++    int parts = 0, any = 0;
++    for (const char *p = s; parts < 4; parts++) {
++        int n = 0, digits = 0;
++        while (*p >= '0' && *p <= '9') { n = n * 10 + (*p++ - '0'); if (++digits > 3) return 0; }
++        if (!digits || n > 255 || (digits > 1 && p[-digits] == '0')) return 0;
++        any |= n;
++        if (parts < 3) { if (*p != '.') return 0; p++; } else if (*p) return 0;
++    }
++    return parts == 4 && any;
++}
++static size_t rp_pair_uri(char *out, size_t cap, const char *ipv4, unsigned port, const char *code) {
++    if (!ipv4 || !code || !rp_ipv4_ok(ipv4) || port < 1 || port > 65535 || !rp_code_ok(code)) return 0;
++    int n = snprintf(out, cap, "nxmando://pair?v=%d&host=%s&port=%u&code=%s", RP_VERSION, ipv4, port, code);
++    return n > 0 && (size_t)n < cap ? (size_t)n : 0;
++}
++
++// ---- Sessions
++typedef struct { uint32_t ip; uint16_t port; } rp_addr;   // IPv4 address and port as the socket gives them (network byte order)
++typedef struct { int use, seats; uint32_t taken; } rp_game;   // use: RP_USE_*; seats: the players the game takes now (1-8); taken: bit p, player p + 1 has a controller
++typedef struct {
++    int (*take)(void *ctx, const void *owner, const char *name);   // a player slot (0..DM_PLAYERS-1) for owner, -1 when none is free
++    void (*drop)(void *ctx, const void *owner);   // owner's slot is free
++    void (*set)(void *ctx, int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);
++    int (*input_on)(void *ctx);   // 0 while the game window is not key (the front end releases its own input then too); NULL = always on
++    void (*say)(void *ctx, const char *line);   // a log line
++    void (*changed)(void *ctx);   // the players changed (the front end's status); may be NULL
++    void (*random)(void *ctx, void *buf, size_t n);
++    void *ctx;
++    void (*rumble_route)(void *ctx, int player, int on);   // a phone that plays rumble holds that player now (on) or not any more; may be NULL
++    void (*game)(void *ctx, int player, rp_game *g);   // what the game makes of a player now; NULL = no info messages
++} rp_hooks;
++typedef struct {
++    int used, player, released, zeroed, acked;
++    char sid[17], id[33], name[33];
++    rp_addr addr;
++    uint32_t seq, rate_n;
++    uint64_t rx_ns, ack_ns, rate_t0, buttons;
++    int32_t ax[4];
++    int64_t ms; int has_ms;
++    int rumble, r_stop;    // plays game rumble; stop messages still to repeat
++    uint32_t r_seq;
++    float r_i, r_s;        // the level last sent
++    uint64_t r_ns;         // when
++    uint32_t i_seq, i_key; // info: its sequence number, what the last one said (0: none sent in this session)
++    uint64_t i_ns;         // when
++} rp_session;
++typedef struct { uint32_t ip, fails; uint64_t last_ns; } rp_fail;
++typedef struct { rp_addr to; size_t n; char text[200]; } rp_reply;
++typedef struct {
++    rp_session s[RP_SESSIONS];
++    rp_fail fail[RP_FAIL_IPS];
++    uint32_t all_fails, kicks, bad;
++    uint64_t all_t0, kick_t0, bad_t0, fail_logged;
++    char code[33], bad_why[64], game[RP_GAME_NAME + 1];
++    uint64_t hold_ns, timeout_ns, ack_ns;
++    float lvl_i[DM_PLAYERS], lvl_s[DM_PLAYERS];   // the game's rumble per player (rp_rumble_level)
++    rp_hooks h;
++} rp_server;
++
++static void rp_say(rp_server *s, const char *fmt, ...) {
++    char line[256]; va_list ap; va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
++    if (s->h.say) s->h.say(s->h.ctx, line);
++}
++static void rp_ip(char out[16], uint32_t ip) { const unsigned char *b = (const unsigned char *)&ip; snprintf(out, 16, "%u.%u.%u.%u", b[0], b[1], b[2], b[3]); }
++static void rp_init(rp_server *s, const char *code, uint32_t timeout_ms, const rp_hooks *h) {
++    memset(s, 0, sizeof *s);
++    snprintf(s->code, sizeof s->code, "%s", code);
++    if (timeout_ms < 200) timeout_ms = 200;
++    s->timeout_ns = (uint64_t)timeout_ms * 1000000ull;
++    s->hold_ns = (uint64_t)(timeout_ms / 2 < RP_HOLD_MS ? timeout_ms / 2 : RP_HOLD_MS) * 1000000ull;
++    s->ack_ns = (uint64_t)RP_ACK_MS * 1000000ull;
++    s->h = *h;
++}
++static void rp_set_game(rp_server *s, const char *name) { rp_text_clean(s->game, sizeof s->game, name ? name : "", RP_GAME_NAME, ""); }   // the game's name in info messages
++static int rp_same(rp_addr a, rp_addr b) { return a.ip == b.ip && a.port == b.port; }
++static size_t rp_out(char *out, size_t cap, const char *fmt, ...) {
++    va_list ap; va_start(ap, fmt); int n = vsnprintf(out, cap, fmt, ap); va_end(ap);
++    return n > 0 && (size_t)n < cap ? (size_t)n : 0;
++}
++static void rp_publish(rp_server *s, rp_session *x) {
++    int on = !s->h.input_on || s->h.input_on(s->h.ctx);
++    x->zeroed = !on;
++    if (on && !x->released) s->h.set(s->h.ctx, x->player, x->buttons, x->ax[0], x->ax[1], x->ax[2], x->ax[3]);
++    else s->h.set(s->h.ctx, x->player, 0, 0, 0, 0, 0);
++}
++static void rp_rumble_route(rp_server *s, rp_session *x, int on) { if (x->rumble && s->h.rumble_route) s->h.rumble_route(s->h.ctx, x->player, on); }
++// The game's rumble for a player, as dm_haptics_level gives it (intensity and sharpness, 0..1; anything else is taken as 0 / clamped)
++static void rp_rumble_level(rp_server *s, int player, float intensity, float sharpness) {
++    if (player < 0 || player >= DM_PLAYERS) return;
++    s->lvl_i[player] = isfinite(intensity) ? fmaxf(0, fminf(1, intensity)) : 0;
++    s->lvl_s[player] = isfinite(sharpness) ? fmaxf(0, fminf(1, sharpness)) : 0;
++}
++static void rp_end(rp_server *s, rp_session *x, const char *why) {
++    s->h.set(s->h.ctx, x->player, 0, 0, 0, 0, 0);   // nothing stays pressed
++    rp_rumble_route(s, x, 0);
++    s->h.drop(s->h.ctx, x);
++    rp_say(s, "Wi-Fi controller '%s' %s: player %d is free", x->name, why, x->player + 1);
++    memset(x, 0, sizeof *x);
++    if (s->h.changed) s->h.changed(s->h.ctx);
++}
++static void rp_bad(rp_server *s, const char *why) { s->bad++; snprintf(s->bad_why, sizeof s->bad_why, "%s", why); }
++// Wrong pairing codes: an address with RP_FAIL_PER_IP of them within a minute, or RP_FAIL_ALL from everyone, is refused ("busy") before its code is even compared
++static rp_fail *rp_fail_of(rp_server *s, uint32_t ip, uint64_t now, int make) {
++    rp_fail *spare = NULL;   // an empty entry, else the oldest
++    for (int i = 0; i < RP_FAIL_IPS; i++) {
++        rp_fail *f = &s->fail[i];
++        if (f->fails && now - f->last_ns > 60000000000ull) f->fails = 0;
++        if (f->fails && f->ip == ip) return f;
++        if (!spare || (spare->fails && (!f->fails || f->last_ns < spare->last_ns))) spare = f;
++    }
++    if (!make) return NULL;
++    memset(spare, 0, sizeof *spare); spare->ip = ip;
++    return spare;
++}
++static int rp_blocked(rp_server *s, uint32_t ip, uint64_t now) {
++    if (now - s->all_t0 > 60000000000ull) { s->all_t0 = now; s->all_fails = 0; }
++    rp_fail *f = rp_fail_of(s, ip, now, 0);
++    return s->all_fails >= RP_FAIL_ALL || (f && f->fails >= RP_FAIL_PER_IP);
++}
++static void rp_new_sid(rp_server *s, rp_session *x) {
++    unsigned char r[8]; s->h.random(s->h.ctx, r, sizeof r);
++    for (int i = 0; i < 8; i++) snprintf(x->sid + 2 * i, 3, "%02x", r[i]);
++}
++static size_t rp_welcome(rp_server *s, rp_session *x, char *out, size_t cap) {
++    return rp_out(out, cap, "{\"v\":1,\"t\":\"welcome\",\"sid\":\"%s\",\"player\":%d,\"hz\":%d,\"timeout_ms\":%llu}", x->sid, x->player + 1, RP_HZ,
++                  (unsigned long long)(s->timeout_ns / 1000000ull));
++}
++static size_t rp_ack(rp_session *x, char *out, size_t cap) {
++    if (x->has_ms) return rp_out(out, cap, "{\"v\":1,\"t\":\"ack\",\"sid\":\"%s\",\"seq\":%u,\"player\":%d,\"ms\":%lld}", x->sid, x->seq, x->player + 1, (long long)x->ms);
++    return rp_out(out, cap, "{\"v\":1,\"t\":\"ack\",\"sid\":\"%s\",\"seq\":%u,\"player\":%d}", x->sid, x->seq, x->player + 1);
++}
++static size_t rp_reject(char *out, size_t cap, const char *reason) { return rp_out(out, cap, "{\"v\":1,\"t\":\"reject\",\"reason\":\"%s\"}", reason); }
++
++// One datagram from `from` at time now: updates the sessions and writes the reply to send back to `from` into out (returns its length, 0 = no reply)
++static size_t rp_packet(rp_server *s, const char *buf, size_t n, rp_addr from, uint64_t now, char *out, size_t cap) {
++    rp_msg m; const char *why; char ip[16];
++    if (rp_parse(buf, n, &m, &why) == RP_ERR) { rp_bad(s, why); return 0; }
++    if (m.type == RP_HELLO) {
++        if (m.version != RP_VERSION) return rp_reject(out, cap, "version");
++        if (rp_blocked(s, from.ip, now)) return rp_reject(out, cap, "busy");
++        if (!rp_code_ok(m.code) || !rp_code_eq(m.code, s->code)) {
++            rp_fail *f = rp_fail_of(s, from.ip, now, 1); f->fails++; f->last_ns = now; s->all_fails++;
++            if (now - s->fail_logged > 2000000000ull || !s->fail_logged) { s->fail_logged = now; rp_ip(ip, from.ip); rp_say(s, "Wi-Fi: wrong pairing code from %s", ip); }
++            return rp_reject(out, cap, "code");
++        }
++        rp_session *x = NULL;
++        for (int i = 0; i < RP_SESSIONS && !x; i++) if (s->s[i].used && !strcmp(s->s[i].id, m.id)) x = &s->s[i];
++        if (x) {   // the same phone again: its hello repeated (same address: the same session), or the app restarted / the phone changed address (a new session, the same player)
++            if (!rp_same(x->addr, from)) {
++                rp_new_sid(s, x); x->addr = from; x->seq = 0; x->acked = 0; x->released = 1; x->buttons = 0; memset(x->ax, 0, sizeof x->ax); x->i_key = 0;
++                rp_publish(s, x);
++                rp_ip(ip, from.ip); rp_say(s, "Wi-Fi controller '%s' rejoined from %s: player %d", x->name, ip, x->player + 1);
++            }
++            if (x->rumble != m.rumble) { rp_rumble_route(s, x, 0); x->rumble = m.rumble; rp_rumble_route(s, x, 1); }   // the app's rumble setting changed
++            x->rx_ns = now; x->acked = 0;   // its next state is taken whatever its seq: a restarted app on the same port counts from 0 again
++            return rp_welcome(s, x, out, cap);
++        }
++        for (int i = 0; i < RP_SESSIONS && !x; i++) if (!s->s[i].used) x = &s->s[i];
++        if (!x) return rp_reject(out, cap, "full");
++        char slot_name[48]; snprintf(slot_name, sizeof slot_name, "wifi:%s", m.id);
++        int p = s->h.take(s->h.ctx, x, slot_name);
++        if (p < 0) { rp_say(s, "Wi-Fi: a phone wants to join, but no player is free"); return rp_reject(out, cap, "full"); }
++        memset(x, 0, sizeof *x);
++        x->used = 1; x->player = p; x->addr = from; x->rx_ns = now; x->released = 1; x->rumble = m.rumble;
++        snprintf(x->id, sizeof x->id, "%s", m.id); rp_name_clean(x->name, sizeof x->name, m.name);
++        rp_new_sid(s, x);
++        rp_ip(ip, from.ip); rp_say(s, "Wi-Fi controller '%s' connected from %s: player %d%s", x->name, ip, p + 1, x->rumble ? ", with game rumble" : "");
++        rp_rumble_route(s, x, 1);
++        if (s->h.changed) s->h.changed(s->h.ctx);
++        return rp_welcome(s, x, out, cap);
++    }
++    rp_session *x = NULL;
++    for (int i = 0; i < RP_SESSIONS && !x; i++) if (s->s[i].used && !strcmp(s->s[i].sid, m.sid)) x = &s->s[i];
++    if (x && !rp_same(x->addr, from)) { rp_bad(s, "a session id from another address"); return 0; }
++    if (!x) {   // a session this host does not have (it restarted, or the session timed out): the phone joins again
++        if (now - s->kick_t0 > 1000000000ull) { s->kick_t0 = now; s->kicks = 0; }
++        if (s->kicks++ >= RP_KICKS) return 0;
++        return rp_out(out, cap, "{\"v\":1,\"t\":\"kick\",\"reason\":\"session\"}");
++    }
++    if (m.type == RP_BYE) { rp_end(s, x, "left"); return rp_out(out, cap, "{\"v\":1,\"t\":\"bye\",\"reason\":\"left\"}"); }
++    if (now - x->rate_t0 > 1000000000ull) { x->rate_t0 = now; x->rate_n = 0; }
++    if (x->rate_n++ >= RP_RATE) { rp_bad(s, "more than 250 packets a second from one phone"); return 0; }
++    if (x->acked && !rp_seq_newer(m.seq, x->seq)) return 0;   // older or repeated: a newer whole state was already taken
++    x->seq = m.seq; x->rx_ns = now; x->released = 0;
++    x->buttons = m.buttons & 0xffffu; x->ms = m.ms; x->has_ms = m.has_ms;
++    rp_stick(m.ax[0], m.ax[1], &x->ax[0], &x->ax[1]); rp_stick(m.ax[2], m.ax[3], &x->ax[2], &x->ax[3]);
++    rp_publish(s, x);
++    if (!x->acked) { x->acked = 1; x->ack_ns = now; return rp_ack(x, out, cap); }   // the first state is acked at once: the phone shows its player
++    return 0;
++}
++
++// Timers, called at least every 20 ms: releases quiet phones, ends silent sessions, follows the window's focus, and writes the acks due into out (returns how many)
++static int rp_tick(rp_server *s, uint64_t now, rp_reply *out, int max) {
++    int k = 0;
++    for (int i = 0; i < RP_SESSIONS; i++) {
++        rp_session *x = &s->s[i];
++        if (!x->used) continue;
++        uint64_t idle = now > x->rx_ns ? now - x->rx_ns : 0;
++        if (idle > s->timeout_ns) {
++            rp_addr a = x->addr;
++            rp_end(s, x, "timed out");
++            if (k < max) { out[k].to = a; out[k].n = rp_out(out[k].text, sizeof out[k].text, "{\"v\":1,\"t\":\"kick\",\"reason\":\"timeout\"}"); k++; }
++            continue;
++        }
++        if (idle > s->hold_ns && !x->released) { x->released = 1; rp_publish(s, x); }
++        int on = !s->h.input_on || s->h.input_on(s->h.ctx);
++        if (on == x->zeroed) rp_publish(s, x);   // focus lost: released; focus back: the phone's state again
++        if (x->acked && now - x->ack_ns >= s->ack_ns && k < max) { x->ack_ns = now; out[k].to = x->addr; out[k].n = rp_ack(x, out[k].text, sizeof out[k].text); k++; }
++        if (x->rumble && x->acked && k < max) {   // the game's rumble: on a change (at most every 33 ms), renewed every 100 ms while on, a stop sent twice
++            float ri = x->released || x->zeroed ? 0 : s->lvl_i[x->player], rs = s->lvl_s[x->player];
++            ri = roundf(ri * 100) / 100; rs = roundf(rs * 100) / 100;
++            uint64_t since = now - x->r_ns;
++            int changed = fabsf(ri - x->r_i) >= 0.02f || (ri > 0 && fabsf(rs - x->r_s) >= 0.05f) || (ri == 0) != (x->r_i == 0);
++            int due = (changed && since >= RP_RUMBLE_GAP_MS * 1000000ull) || (since >= RP_RUMBLE_KEEP_MS * 1000000ull && (ri > 0 || x->r_stop > 0));
++            if (due) {
++                if (ri > 0) x->r_stop = 0; else { if (changed) x->r_stop = 2; x->r_stop--; }
++                x->r_i = ri; x->r_s = rs; x->r_ns = now; x->r_seq++;
++                out[k].to = x->addr;
++                out[k].n = rp_out(out[k].text, sizeof out[k].text, "{\"v\":1,\"t\":\"rumble\",\"sid\":\"%s\",\"rs\":%u,\"i\":%.2f,\"s\":%.2f,\"ms\":%d}", x->sid, x->r_seq, ri, rs,
++                                  ri > 0 ? RP_RUMBLE_HOLD_MS : 0);
++                k++;
++            }
++        }
++        if (s->h.game && x->acked && k < max) {   // what the game makes of this player: on a change, renewed every RP_INFO_MS
++            rp_game g = {RP_USE_OFF, 1, 0}; s->h.game(s->h.ctx, x->player, &g);
++            int seats = g.seats < 1 ? 1 : g.seats > DM_PLAYERS ? DM_PLAYERS : g.seats; uint32_t taken = g.taken & ((1u << DM_PLAYERS) - 1);
++            const char *use = !on ? "pause" : g.use == RP_USE_OWN ? "own" : g.use == RP_USE_P1 ? "p1" : "off";
++            uint32_t key = 1u << 31 | (uint32_t)!on << 30 | (uint32_t)(g.use & 3) << 28 | (uint32_t)seats << 20 | taken << 8 | (uint32_t)x->player;
++            if (key != x->i_key || now - x->i_ns >= RP_INFO_MS * 1000000ull) {
++                x->i_key = key; x->i_ns = now; x->i_seq++;
++                out[k].to = x->addr;
++                out[k].n = rp_out(out[k].text, sizeof out[k].text, "{\"v\":1,\"t\":\"info\",\"sid\":\"%s\",\"is\":%u,\"player\":%d,\"game\":\"%s\",\"use\":\"%s\",\"seats\":%d,\"taken\":%u}",
++                                  x->sid, x->i_seq, x->player + 1, s->game, use, seats, taken);
++                k++;
++            }
++        }
++    }
++    if (s->bad && now - s->bad_t0 > 10000000000ull) {
++        rp_say(s, "Wi-Fi: ignored %u packets in the last 10 s (last: %s)", s->bad, s->bad_why);
++        s->bad = 0; s->bad_t0 = now;
++    }
++    return k;
++}
++// The host is quitting: every phone is told and every player released
++static int rp_close_all(rp_server *s, rp_reply *out, int max) {
++    int k = 0;
++    for (int i = 0; i < RP_SESSIONS; i++) if (s->s[i].used) {
++        if (k < max) { out[k].to = s->s[i].addr; out[k].n = rp_out(out[k].text, sizeof out[k].text, "{\"v\":1,\"t\":\"bye\",\"reason\":\"host\"}"); k++; }
++        rp_end(s, &s->s[i], "disconnected (the host quits)");
++    }
++    return k;
++}
++// "Ana (2), Luis (3)": the connected phones and their players, for the front end's status
++static void rp_players(const rp_server *s, char *out, size_t cap) {
++    size_t n = 0; out[0] = 0;
++    for (int i = 0; i < RP_SESSIONS; i++) if (s->s[i].used && n < cap) {
++        int w = snprintf(out + n, cap - n, "%s%s (%d)", n ? ", " : "", s->s[i].name, s->s[i].player + 1);
++        if (w < 0) break;
++        n += (size_t)w;
++    }
++}
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 872316b..e624b20 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -137,6 +137,19 @@ $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ..
+ 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
+ $(B)/t_hid: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
++# Wi-Fi controllers (remote_proto.h, remote_mac.c) and the Mac keyboard map (kbd_map.h); t_remote_udp sends real datagrams on loopback to the receiver's thread
++.PHONY: remote
++remote: $(B)/t_remote $(B)/t_kbd_map $(B)/t_remote_udp
++	$(B)/t_remote
++	$(B)/t_kbd_map
++	$(B)/t_remote_udp $(QUIET)
++run: remote
++$(B)/t_remote: t_remote.c ../remote_proto.h ../pad_slots.h ../dm_input.h | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. -o $@ t_remote.c
++$(B)/t_kbd_map: t_kbd_map.c ../kbd_map.h ../dm_input.h | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. -o $@ t_kbd_map.c
++$(B)/t_remote_udp: t_remote_udp.c ../remote_mac.c ../remote_mac.h ../remote_proto.h ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_remote_udp.c ../remote_mac.c ../hle_haptics.c
+ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
+ $(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
+diff --git a/dm/host/tests/t_kbd_map.c b/dm/host/tests/t_kbd_map.c
+new file mode 100644
+index 0000000..72cbf46
+--- /dev/null
++++ b/dm/host/tests/t_kbd_map.c
+@@ -0,0 +1,70 @@
++// The Mac keyboard map (kbd_map.h): the built-in map is the front end's old fixed one, map files override it action by action, a key presses one action, the file round-trips,
++// held keys make buttons and sticks, and Shift / Control / Option are read from the modifier flags
++#include "../kbd_map.h"
++
++static int checks, fails, warns;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++static void warn(void *ctx, int line, const char *msg) { (void)ctx; (void)line; (void)msg; warns++; }
++static void press(const kbd_map *m, const char *keys, uint64_t *b, int32_t ax[4]) {   // "J+W": these keys held
++    kbd_keys k; memset(&k, 0, sizeof k); char buf[128]; snprintf(buf, sizeof buf, "%s", keys);
++    for (char *t = strtok(buf, "+"); t; t = strtok(NULL, "+")) { int c = kbd_key_code(t); if (c >= 0) k.down[c] = 1; }
++    kbd_compose(m, &k, b, ax);
++}
++
++int main(void) {
++    kbd_map m; uint64_t b; int32_t ax[4];
++    // the built-in map, key code by key code as front_mac.m had it
++    kbd_default(&m);
++    static const struct { int code; uint64_t bit; } old[] = {
++        {38, DM_BTN_A}, {40, DM_BTN_B}, {32, DM_BTN_X}, {34, DM_BTN_Y}, {3, DM_BTN_LS}, {5, DM_BTN_RS}, {12, DM_BTN_L}, {14, DM_BTN_R}, {6, DM_BTN_ZL}, {8, DM_BTN_ZR},
++        {36, DM_BTN_PLUS}, {48, DM_BTN_MINUS}, {123, DM_BTN_LEFT}, {126, DM_BTN_UP}, {124, DM_BTN_RIGHT}, {125, DM_BTN_DOWN}, {49, DM_BTN_SHAKE},
++    };
++    for (size_t i = 0; i < sizeof old / sizeof old[0]; i++) {
++        kbd_keys k; memset(&k, 0, sizeof k); k.down[old[i].code] = 1; kbd_compose(&m, &k, &b, ax);
++        CHECK(b == old[i].bit && !ax[0] && !ax[1], kbd_key_name(old[i].code));
++    }
++    press(&m, "W", &b, ax); CHECK(!b && ax[0] == 0 && ax[1] == DM_STICK_MAX, "W: left stick up");
++    press(&m, "A+S", &b, ax); CHECK(ax[0] == -DM_STICK_MAX && ax[1] == -DM_STICK_MAX, "A+S: down-left at full tilt on both axes, as before");
++    press(&m, "A+D", &b, ax); CHECK(ax[0] == 0, "opposite keys cancel");
++    press(&m, "J+K+W+Space", &b, ax); CHECK(b == (DM_BTN_A | DM_BTN_B | DM_BTN_SHAKE) && ax[1] == DM_STICK_MAX, "several at once");
++    press(&m, "P+F5", &b, ax); CHECK(!b && !ax[0] && !ax[1] && !ax[2] && !ax[3], "unmapped keys do nothing; the right stick has no keys");
++    CHECK(kbd_is_default(&m), "the built-in map is the default");
++    int c[4]; CHECK(kbd_keys_of(&m, kbd_action_of("A"), c, 4) == 1 && c[0] == 38, "A's key is J");
++    for (int i = 0; i < KBD_NKEYS; i++) for (int j = i + 1; j < KBD_NKEYS; j++) {
++        CHECK(KBD_KEY[i].code != KBD_KEY[j].code && strcasecmp(KBD_KEY[i].name, KBD_KEY[j].name), "key codes and names are unique");
++        if (KBD_KEY[i].code == KBD_KEY[j].code) fprintf(stderr, "  %s %s\n", KBD_KEY[i].name, KBD_KEY[j].name);
++    }
++    for (int i = 0; i < KBD_NKEYS; i++) CHECK(KBD_KEY[i].code < KBD_KEYS && KBD_KEY[i].code != 55 && KBD_KEY[i].code != 54 && KBD_KEY[i].code != 57 && KBD_KEY[i].code != 63, "no Command, Caps Lock or Fn");
++
++    // a file over the built-in map
++    warns = 0;
++    int bad = kbd_parse(&m, "# mine\nA = Space   # accelerate\nB=LeftShift,K\n\nRStickUp=O\nLStickUp=\nJump=X\nZR=Nope\nbroken line\n", warn, NULL);
++    CHECK(bad == 3 && warns == 3, "an unknown action, an unknown key and a line without = are reported");
++    press(&m, "Space", &b, ax); CHECK(b == DM_BTN_A, "Space is A now (taken from Shake)");
++    press(&m, "J", &b, ax); CHECK(b == 0, "J pressed A and no longer does: A has exactly the listed keys");
++    press(&m, "LeftShift", &b, ax); CHECK(b == DM_BTN_B, "Left Shift is B");
++    press(&m, "K", &b, ax); CHECK(b == DM_BTN_B, "and K still is");
++    press(&m, "O", &b, ax); CHECK(ax[3] == DM_STICK_MAX, "O tilts the right stick up");
++    press(&m, "W", &b, ax); CHECK(ax[1] == 0, "LStickUp= has no key");
++    press(&m, "S", &b, ax); CHECK(ax[1] == -DM_STICK_MAX, "the actions the file does not name keep their keys");
++    press(&m, "C", &b, ax); CHECK(b == DM_BTN_ZR, "a line with an unknown key changes nothing");
++    CHECK(kbd_keys_of(&m, kbd_action_of("Shake"), c, 4) == 0, "Shake lost its only key");
++    // round trip
++    char text[8192]; kbd_format(&m, text, sizeof text);
++    CHECK(strstr(text, "\nA=Space\n") && strstr(text, "\nB=K,LeftShift\n") && strstr(text, "\nShake=\n") && strstr(text, "\nLStickUp=\n"), "the file lists every action");
++    kbd_map m2; warns = 0; CHECK(kbd_parse(&m2, text, warn, NULL) == 0 && !memcmp(&m, &m2, sizeof m), "what is written reads back the same");
++    kbd_default(&m); kbd_format(&m, text, sizeof text); kbd_parse(&m2, text, warn, NULL); CHECK(kbd_is_default(&m2), "the built-in map round-trips");
++    CHECK(kbd_parse(&m2, "a=j\nlstickup=w\n", warn, NULL) == 0 && kbd_is_default(&m2), "names are not case-sensitive");
++    char small[16]; size_t n = kbd_format(&m, small, sizeof small); CHECK(n == strlen(small) && n < sizeof small, "a short buffer is cut, not overrun");
++
++    // modifier flags (NSEvent modifierFlags: device bits in the low word, Shift 1 << 17, Control 1 << 18, Option 1 << 19)
++    int down;
++    CHECK(kbd_modifier(56, (1u << 17) | 0x2, &down) && down, "left Shift held");
++    CHECK(kbd_modifier(60, (1u << 17) | 0x2, &down) && !down, "right Shift not held while only the left one is");
++    CHECK(kbd_modifier(56, 0, &down) && !down, "released");
++    CHECK(kbd_modifier(62, (1u << 18) | 0x2000, &down) && down && kbd_modifier(59, (1u << 18) | 0x2000, &down) && !down, "right Control");
++    CHECK(kbd_modifier(58, 1u << 19, &down) && down, "no device bits: the plain Option flag");
++    CHECK(!kbd_modifier(38, 0, &down), "J is not a modifier");
++    printf("t_kbd_map: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/host/tests/t_remote.c b/dm/host/tests/t_remote.c
+new file mode 100644
+index 0000000..6046a66
+--- /dev/null
++++ b/dm/host/tests/t_remote.c
+@@ -0,0 +1,222 @@
++// Wi-Fi controllers (remote_proto.h, docs/wifi-controllers.md): message parsing and validation, stick normalization, seq ordering, and the sessions over a player slot table
++// shared with physical controllers (pad_slots.h): pairing, wrong codes and their limit, players, a phone and a controller never on one player, release and timeout, rejoin,
++// focus, bye. No socket and no clock: the time is passed in (t_remote_udp.c covers the socket)
++#include "../remote_proto.h"
++#include "../pad_slots.h"
++
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++#define MS 1000000ull
++
++static pad_slots g_slots; static int g_limit = DM_PLAYERS, g_input = 1, g_changes;
++static uint64_t g_b[DM_PLAYERS]; static int32_t g_ax[DM_PLAYERS][4]; static int g_sets[DM_PLAYERS];
++static char g_last_say[256]; static unsigned g_rand;
++static int f_take(void *ctx, const void *o, const char *name) { (void)ctx; return pad_slot_take_in(&g_slots, o, name, g_limit); }
++static void f_drop(void *ctx, const void *o) { (void)ctx; pad_slot_free(&g_slots, o); }
++static void f_set(void *ctx, int p, uint64_t b, int32_t lx, int32_t ly, int32_t rx, int32_t ry) { (void)ctx; g_b[p] = b; g_ax[p][0] = lx; g_ax[p][1] = ly; g_ax[p][2] = rx; g_ax[p][3] = ry; g_sets[p]++; }
++static int f_input(void *ctx) { (void)ctx; return g_input; }
++static void f_say(void *ctx, const char *l) { (void)ctx; snprintf(g_last_say, sizeof g_last_say, "%s", l); }
++static void f_changed(void *ctx) { (void)ctx; g_changes++; }
++static void f_random(void *ctx, void *buf, size_t n) { (void)ctx; for (size_t i = 0; i < n; i++) ((unsigned char *)buf)[i] = (unsigned char)(++g_rand * 37u); }
++static const rp_hooks HOOKS = {f_take, f_drop, f_set, f_input, f_say, f_changed, f_random, NULL};
++
++static int parse(const char *s, rp_msg *m) { const char *why; return rp_parse(s, strlen(s), m, &why); }
++static void t_parse(void) {
++    rp_msg m;
++    CHECK(parse("{\"v\":1,\"t\":\"hello\",\"code\":\"482913\",\"id\":\"abcDEF12_-\",\"name\":\"Ana\"}", &m) == RP_HELLO && !strcmp(m.code, "482913") && !strcmp(m.id, "abcDEF12_-") && !strcmp(m.name, "Ana"), "a hello");
++    CHECK(parse(" { \"t\" : \"state\" , \"v\":1,\"sid\":\"0123456789abcdef\",\"seq\":4294967295,\"b\":65535,\"lx\":-1,\"ly\":0.5,\"rx\":1e-3,\"ry\":-0.25,\"ms\":123,\"extra\":null} ", &m) == RP_STATE
++          && m.seq == 4294967295u && m.buttons == 0xffff && m.ax[0] == -1 && m.ax[1] == 0.5 && m.ax[2] == 0.001 && m.ax[3] == -0.25 && m.has_ms && m.ms == 123, "a state, any member order, unknown keys ignored");
++    CHECK(parse("{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":0,\"b\":0}", &m) == RP_STATE && m.ax[0] == 0 && !m.has_ms, "sticks and ms are optional");
++    CHECK(parse("{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}", &m) == RP_BYE, "a bye");
++    CHECK(parse("{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\",\"name\":\"Jos\\u00e9 \\ud83d\\ude00\\n\"}", &m) == RP_HELLO && !strcmp(m.name, "Jos\xc3\xa9 \xf0\x9f\x98\x80\n"), "escapes and a surrogate pair decode to UTF-8");
++    CHECK(parse("{\"v\":2,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\"}", &m) == RP_HELLO && m.version == 2, "another version parses (the session answers it)");
++    static const char *const bad[] = {
++        "", "[]", "{", "{\"v\":1,\"t\":\"state\"", "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"} x", "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",}",
++        "{\"v\":1,\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}",                       // a key twice
++        "{\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}",                                         // no version
++        "{\"v\":1,\"t\":\"jump\"}", "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789ABCDEF\"}", "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123\"}",
++        "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":-1,\"b\":0}", "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":1.5,\"b\":0}",
++        "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":4294967296,\"b\":0}", "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":1,\"b\":65536}",
++        "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":1}", "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":1,\"b\":\"1\"}",
++        "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":1,\"b\":1,\"lx\":1e999}", "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":01,\"b\":1}",
++        "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":1,\"b\":1,\"lx\":[1]}", "{\"v\":1,\"t\":\"state\",\"sid\":\"0123456789abcdef\",\"seq\":1,\"b\":1,\"lx\":{}}",
++        "{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"short\"}", "{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"has space!\"}", "{\"v\":1,\"t\":\"hello\",\"id\":\"abcdefgh\"}",
++        "{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\",\"name\":\"\\ud83d\"}",        // a lone surrogate
++        "{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\",\"name\":\"a\x01\"}",        // a raw control byte
++        "{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\",\"name\":\"0123456789012345678901234567890123456789012345678901234567890123456789\"}",   // over 64 bytes
++        "{\"v\":true,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}",
++    };
++    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) { int r = parse(bad[i], &m); CHECK(r == RP_ERR, bad[i]); }
++    char big[700]; memset(big, ' ', sizeof big); memcpy(big, "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}", 41); const char *why;
++    CHECK(rp_parse(big, sizeof big, &m, &why) == RP_ERR && !strcmp(why, "too long"), "a datagram over 512 bytes");
++}
++static void t_values(void) {
++    int32_t x, y;
++    rp_stick(0, 0, &x, &y); CHECK(x == 0 && y == 0, "centred");
++    rp_stick(1, 0, &x, &y); CHECK(x == DM_STICK_MAX && y == 0, "full right");
++    rp_stick(0, -1, &x, &y); CHECK(x == 0 && y == -DM_STICK_MAX, "full down");
++    rp_stick(5, -7, &x, &y); CHECK(fabs(hypot(x, y) - DM_STICK_MAX) < 2 && x > 0 && y < 0, "out of range: clamped, then onto the circle");
++    rp_stick(1, 1, &x, &y); CHECK(abs(x - 23170) <= 1 && abs(y - 23170) <= 1, "a square corner is a full tilt on the diagonal");
++    rp_stick(0.5, 0.5, &x, &y); CHECK(x == 16384 && y == 16384, "inside the circle: unchanged");
++    CHECK(rp_seq_newer(2, 1) && !rp_seq_newer(1, 1) && !rp_seq_newer(1, 2) && rp_seq_newer(0, 0xffffffffu) && !rp_seq_newer(0xffffffffu, 0), "seq order with wrap-around");
++    CHECK(rp_code_eq("482913", "482913") && !rp_code_eq("482913", "482914") && !rp_code_eq("48291", "482913") && !rp_code_eq("", "1"), "code comparison");
++    CHECK(rp_code_ok("1234") && rp_code_ok("abcDEF123") && !rp_code_ok("123") && !rp_code_ok("12 34") && !rp_code_ok("123456789012345678901234567890123"), "code charset and length");
++    char n[33];
++    rp_name_clean(n, sizeof n, "  Ana \"\\\x01\x7f la\xff\xc3\xa9  "); CHECK(!strcmp(n, "Ana  la\xc3\xa9"), "names: controls, quotes, broken UTF-8 and outer spaces dropped");
++    rp_name_clean(n, sizeof n, ""); CHECK(!strcmp(n, "phone"), "an empty name");
++    rp_name_clean(n, sizeof n, "\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9\xc3\xa9");
++    CHECK(strlen(n) == 32 && (unsigned char)n[31] == 0xa9, "names stop at 32 bytes on a character boundary");
++}
++
++// ---- sessions
++static rp_server S; static char out[256];
++static rp_addr A1 = {0x0a01a8c0, 1000}, A2 = {0x0b01a8c0, 2000}, A3 = {0x0c01a8c0, 3000}, A4 = {0x0d01a8c0, 4000};
++static size_t send_s(rp_addr a, uint64_t now, const char *fmt, ...) {
++    char msg[600]; va_list ap; va_start(ap, fmt); vsnprintf(msg, sizeof msg, fmt, ap); va_end(ap);
++    out[0] = 0; return rp_packet(&S, msg, strlen(msg), a, now, out, sizeof out);
++}
++static size_t hello(rp_addr a, uint64_t now, const char *code, const char *id) { return send_s(a, now, "{\"v\":1,\"t\":\"hello\",\"code\":\"%s\",\"id\":\"%s\",\"name\":\"%s\"}", code, id, id); }
++static int welcome(char sid[17], int *player) {   // out is a welcome: its sid and player
++    const char *p = strstr(out, "\"sid\":\""), *q = strstr(out, "\"player\":");
++    if (!strstr(out, "\"t\":\"welcome\"") || !p || !q) return 0;
++    memcpy(sid, p + 7, 16); sid[16] = 0; *player = atoi(q + 9);
++    return 1;
++}
++static size_t state(rp_addr a, uint64_t now, const char *sid, uint32_t seq, unsigned b, double lx, double ly) {
++    return send_s(a, now, "{\"v\":1,\"t\":\"state\",\"sid\":\"%s\",\"seq\":%u,\"b\":%u,\"lx\":%g,\"ly\":%g,\"ms\":%u}", sid, seq, b, lx, ly, seq * 10);
++}
++static void reset(int limit) {
++    memset(&g_slots, 0, sizeof g_slots); memset(g_b, 0, sizeof g_b); memset(g_ax, 0, sizeof g_ax); memset(g_sets, 0, sizeof g_sets);
++    g_limit = limit; g_input = 1; g_changes = 0;
++    rp_init(&S, "482913", RP_TIMEOUT_MS, &HOOKS);
++}
++static void t_sessions(void) {
++    char sid1[17], sid2[17], sid3[17], sidx[17]; int p1, p2, p3, px; rp_reply rep[RP_SESSIONS]; uint64_t t = 1000 * MS;
++    // Mario Kart, four players: the keyboard holds player 1 (DM_KBD_PLAYER=own), a Pro Controller is player 2, phones fill 3 and 4 (DM_REMOTE_PLAYERS=4)
++    reset(4);
++    static const char kbd = 0, pro = 0;
++    CHECK(pad_slot_take(&g_slots, &kbd, "keyboard") == 0 && pad_slot_take(&g_slots, &pro, "Pro Controller") == 1, "keyboard and controller first");
++    CHECK(hello(A1, t, "000000", "phone-ana-1") && strstr(out, "\"reason\":\"code\""), "a wrong code is refused");
++    CHECK(strstr(g_last_say, "wrong pairing code from 192.168.1.10"), "and logged with the address");
++    CHECK(hello(A1, t, "482913", "phone-ana-1") && welcome(sid1, &p1) && p1 == 3, "the first phone is player 3: players 1 and 2 are held");
++    CHECK(pad_slot_mask(&g_slots) == 0x7 && g_changes == 1, "its slot is in the shared table");
++    CHECK(hello(A1, t + MS, "482913", "phone-ana-1") && welcome(sidx, &px) && !strcmp(sidx, sid1) && px == 3, "a repeated hello: the same session");
++    CHECK(hello(A2, t, "482913", "phone-luis-2") && welcome(sid2, &p2) && p2 == 4 && strcmp(sid1, sid2), "the second phone is player 4, with its own session id");
++    CHECK(hello(A3, t, "482913", "phone-eva-03") && strstr(out, "\"reason\":\"full\""), "a third phone: no player is left within four");
++    static const char pro2 = 0;
++    CHECK(pad_slot_take(&g_slots, &pro2, "Pro Controller") == 4, "a controller connecting now takes player 5, not a phone's");
++
++    CHECK(state(A1, t + 10 * MS, sid1, 1, DM_BTN_A | DM_BTN_R, 1, 0) && strstr(out, "\"t\":\"ack\"") && strstr(out, "\"player\":3") && strstr(out, "\"ms\":10"), "the first state is acked at once, with its time echoed");
++    CHECK(g_b[2] == (DM_BTN_A | DM_BTN_R) && g_ax[2][0] == DM_STICK_MAX && g_ax[2][1] == 0, "published on player 3's path");
++    CHECK(!state(A1, t + 11 * MS, sid1, 1, 0, 0, 0) && g_b[2] == (DM_BTN_A | DM_BTN_R), "a repeated seq is dropped");
++    CHECK(!state(A1, t + 12 * MS, sid1, 0, 0, 0, 0) && g_b[2] == (DM_BTN_A | DM_BTN_R), "an older seq is dropped");
++    CHECK(!state(A1, t + 13 * MS, sid1, 5, DM_BTN_B, -0.5, 0.5) && g_b[2] == DM_BTN_B && g_ax[2][0] == -16384 && g_ax[2][1] == 16384, "a newer seq (some lost) is taken");
++    CHECK(!state(A2, t + 14 * MS, sid1, 9, DM_BTN_X, 0, 0) && g_b[2] == DM_BTN_B, "a session id from another address is ignored");
++    CHECK(state(A1, t + 15 * MS, "00000000000000ff", 9, 0, 0, 0) && strstr(out, "\"t\":\"kick\""), "an unknown session is told to join again");
++    uint32_t bad0 = S.bad; CHECK(!send_s(A1, t, "{\"v\":1,\"t\":\"state\"}") && S.bad == bad0 + 1, "a malformed packet: no reply, counted");
++
++    // acks every 250 ms while the session lives
++    int k = rp_tick(&S, t + 13 * MS + 260 * MS, rep, RP_SESSIONS);
++    CHECK(k == 1 && rep[0].to.ip == A1.ip && strstr(rep[0].text, "\"seq\":5"), "a periodic ack (the second phone sent no state yet)");
++    // quiet: buttons released after 500 ms, the session kept; a new state brings them back
++    rp_tick(&S, t + 13 * MS + 520 * MS, rep, RP_SESSIONS);
++    CHECK(g_b[2] == 0 && g_ax[2][0] == 0 && pad_slot_of(&g_slots, &S.s[0]) == 2, "a quiet phone is released, its player kept");
++    state(A1, t + 600 * MS, sid1, 6, DM_BTN_A, 0, 0); CHECK(g_b[2] == DM_BTN_A, "and plays again with its next state");
++    // focus: the game window not key releases the phones, back in focus they play again
++    g_input = 0; rp_tick(&S, t + 610 * MS, rep, RP_SESSIONS); CHECK(g_b[2] == 0, "focus lost: released");
++    state(A1, t + 620 * MS, sid1, 7, DM_BTN_A, 0, 0); CHECK(g_b[2] == 0, "and stays released while out of focus");
++    g_input = 1; rp_tick(&S, t + 630 * MS, rep, RP_SESSIONS); CHECK(g_b[2] == DM_BTN_A, "focus back: the phone's state again");
++    // timeout: the session ends, the player is free, its name kept for the rejoin
++    k = rp_tick(&S, t + 630 * MS + 5001 * MS, rep, RP_SESSIONS);
++    CHECK(pad_slot_of(&g_slots, &S.s[0]) < 0 && pad_slot_of(&g_slots, &S.s[1]) < 0 && g_b[2] == 0, "silent phones lose their players");
++    CHECK(k == 2 && strstr(rep[0].text, "\"reason\":\"timeout\""), "and are told");
++    CHECK(state(A1, t + 5700 * MS, sid1, 8, DM_BTN_A, 0, 0) && strstr(out, "\"reason\":\"session\""), "a state after the timeout: join again");
++    CHECK(hello(A1, t + 5701 * MS, "482913", "phone-ana-1") && welcome(sid3, &p3) && p3 == 3 && strcmp(sid3, sid1), "the rejoin gets player 3 back, with a new session id");
++    CHECK(hello(A3, t + 5702 * MS, "482913", "phone-eva-03") && welcome(sidx, &px) && px == 4, "player 4, free again, goes to the next phone");
++    CHECK(hello(A2, t + 5703 * MS, "482913", "phone-luis-2") && strstr(out, "\"reason\":\"full\""), "and the phone that had it finds no player");
++    // the same phone from a new address (Wi-Fi reconnected, app restarted): a new session on the same player; the old address is no longer taken
++    CHECK(hello(A4, t + 5800 * MS, "482913", "phone-ana-1") && welcome(sidx, &px) && px == 3 && strcmp(sidx, sid3), "rejoin from another address: same player, new session");
++    CHECK(!state(A1, t + 5801 * MS, sidx, 1, DM_BTN_A, 0, 0) && g_b[2] == 0, "the old address cannot use it");
++    CHECK(state(A4, t + 5802 * MS, sidx, 0, DM_BTN_Y, 0, 0) && g_b[2] == DM_BTN_Y, "the new one plays, from seq 0");
++    // bye: the player is free at once
++    CHECK(send_s(A4, t + 5803 * MS, "{\"v\":1,\"t\":\"bye\",\"sid\":\"%s\"}", sidx) && strstr(out, "\"t\":\"bye\"") && g_b[2] == 0 && pad_slot_mask(&g_slots) == (0x3 | 1u << 3 | 1u << 4), "bye frees player 3");
++    // the host quits: every phone is told
++    k = rp_close_all(&S, rep, RP_SESSIONS); CHECK(k == 1 && strstr(rep[0].text, "\"reason\":\"host\"") && pad_slot_mask(&g_slots) == (0x3 | 1u << 4), "quit: bye to every phone");
++
++    // eight players at most
++    reset(DM_PLAYERS);
++    for (int i = 0; i < DM_PLAYERS; i++) { char id[16]; snprintf(id, sizeof id, "phone-%03d", i); rp_addr a = {0x0a000000u + (uint32_t)i, 5}; hello(a, t, "482913", id); CHECK(welcome(sidx, &px) && px == i + 1, "phones 1..8"); }
++    CHECK(hello((rp_addr){0x0b000000, 5}, t, "482913", "phone-ninth") && strstr(out, "\"reason\":\"full\""), "a ninth phone is refused");
++    // version
++    CHECK(send_s(A1, t, "{\"v\":2,\"t\":\"hello\",\"code\":\"482913\",\"id\":\"phone-ana-1\"}") && strstr(out, "\"reason\":\"version\""), "another protocol version is refused");
++}
++static void t_limits(void) {
++    uint64_t t = 1000 * MS; char sid[17]; int p;
++    reset(DM_PLAYERS);
++    for (int i = 0; i < RP_FAIL_PER_IP; i++) { hello(A1, t + i * MS, "111111", "phone-ana-1"); CHECK(strstr(out, "\"reason\":\"code\""), "wrong codes"); }
++    CHECK(hello(A1, t + 10 * MS, "482913", "phone-ana-1") && strstr(out, "\"reason\":\"busy\""), "after five wrong codes the address is refused, even with the right one");
++    CHECK(hello(A2, t + 11 * MS, "482913", "phone-luis-2") && welcome(sid, &p), "another address still joins");
++    CHECK(hello(A1, t + 61 * 1000 * MS, "482913", "phone-ana-1") && welcome(sid, &p), "a minute later it may try again");
++    reset(DM_PLAYERS);
++    for (int i = 0; i < RP_FAIL_ALL; i++) { rp_addr a = {0x0a000000u + (uint32_t)i, 7}; hello(a, t, "111111", "phone-ana-1"); }
++    CHECK(hello(A3, t + MS, "482913", "phone-eva-03") && strstr(out, "\"reason\":\"busy\""), "thirty wrong codes from anywhere: every hello waits");
++    // a phone flooding packets
++    reset(DM_PLAYERS);
++    hello(A1, t, "482913", "phone-ana-1"); welcome(sid, &p);
++    int taken = 0;
++    for (uint32_t i = 1; i <= 400; i++) { int before = g_sets[0]; state(A1, t + i * 1000, sid, i, i & 1, 0, 0); taken += g_sets[0] != before; }
++    CHECK(taken == RP_RATE, "at most 250 states a second are taken from one phone");
++    // kicks are limited too
++    int kicks = 0; for (int i = 0; i < 100; i++) kicks += state(A2, t + 10 * MS, "00000000000000ff", 1, 0, 0, 0) > 0;
++    CHECK(kicks == RP_KICKS, "at most 20 kicks a second");
++}
++static void t_pair_rumble(void) {
++    char uri[256],sid[17];int p;rp_reply rep[RP_SESSIONS];
++    CHECK(rp_pair_uri(uri,sizeof uri,"192.168.1.10",47800,"123456") && strstr(uri,"nxmando://pair?v=1"),"QR pairing URI");
++    CHECK(!rp_pair_uri(uri,sizeof uri,"0.0.0.0",47800,"123456") && !rp_pair_uri(uri,sizeof uri,"1.2.3.4",99999,"123456"),"QR refuses invalid host/port");
++    reset(4);uint64_t t=1000*MS;
++    send_s(A1,t,"{\"v\":1,\"t\":\"hello\",\"code\":\"482913\",\"id\":\"rumblephone1\",\"rumble\":1}");
++    CHECK(welcome(sid,&p),"rumble phone joins");
++    state(A1,t+MS,sid,1,DM_BTN_A,0,0);rp_rumble_level(&S,p-1,.8,.3);
++    int k=rp_tick(&S,t+40*MS,rep,RP_SESSIONS);int found=0;for(int i=0;i<k;i++)found|=strstr(rep[i].text,"\"t\":\"rumble\"")!=NULL;
++    CHECK(found,"game rumble returned only to opted in session");
++    rp_rumble_level(&S,p-1,NAN,INFINITY);CHECK(S.lvl_i[p-1]==0 && S.lvl_s[p-1]==0,"invalid rumble neutralized");
++    reset(4);hello(A1,t,"482913","legacyphone1");welcome(sid,&p);state(A1,t+MS,sid,1,DM_BTN_A,0,0);rp_rumble_level(&S,p-1,1,1);k=rp_tick(&S,t+40*MS,rep,RP_SESSIONS);found=0;for(int i=0;i<k;i++)found|=strstr(rep[i].text,"rumble")!=NULL;CHECK(!found,"legacy phone receives no rumble");
++}
++// info: what the game makes of each phone's player, on a change and every RP_INFO_MS; none before the first state, none without the hook
++static rp_game g_game = {RP_USE_OWN, 4, 0x7};
++static void f_game(void *ctx, int p, rp_game *g) { (void)ctx; (void)p; *g = g_game; }
++static int infos(const rp_reply *rep, int k, char *last, size_t cap) {   // how many info messages; the last one into last
++    int n = 0; for (int i = 0; i < k; i++) if (strstr(rep[i].text, "\"t\":\"info\"")) { n++; snprintf(last, cap, "%s", rep[i].text); }
++    return n;
++}
++static void t_info(void) {
++    char sid[17], sid2[17], txt[200]; int p; rp_reply rep[RP_SESSIONS * 3]; uint64_t t = 1000 * MS; int k;
++    rp_hooks h = HOOKS; h.game = f_game;
++    reset(4); S.h = h; rp_set_game(&S, "Mario Kart 8 \"Deluxe\"\x01");
++    CHECK(!strcmp(S.game, "Mario Kart 8 Deluxe"), "the game's name is cleaned for JSON");
++    hello(A1, t, "482913", "phone-ana-1"); welcome(sid, &p);
++    k = rp_tick(&S, t + MS, rep, RP_SESSIONS * 3); CHECK(!infos(rep, k, txt, sizeof txt), "no info before the phone streams");
++    state(A1, t + 2 * MS, sid, 1, 0, 0, 0);
++    k = rp_tick(&S, t + 3 * MS, rep, RP_SESSIONS * 3);
++    CHECK(infos(rep, k, txt, sizeof txt) == 1 && strstr(txt, sid) && strstr(txt, "\"is\":1,") && strstr(txt, "\"player\":1,") && strstr(txt, "\"game\":\"Mario Kart 8 Deluxe\"")
++          && strstr(txt, "\"use\":\"own\"") && strstr(txt, "\"seats\":4") && strstr(txt, "\"taken\":7}"), txt);
++    state(A1, t + 4 * MS, sid, 2, 0, 0, 0); k = rp_tick(&S, t + 5 * MS, rep, RP_SESSIONS * 3); CHECK(!infos(rep, k, txt, sizeof txt), "unchanged: not sent again at once");
++    g_game.use = RP_USE_P1; g_game.seats = 1; k = rp_tick(&S, t + 6 * MS, rep, RP_SESSIONS * 3);
++    CHECK(infos(rep, k, txt, sizeof txt) == 1 && strstr(txt, "\"is\":2,") && strstr(txt, "\"use\":\"p1\"") && strstr(txt, "\"seats\":1"), "a one-player game: the phone feeds player 1");
++    g_game.use = RP_USE_OFF; g_game.seats = 99; g_game.taken = 0xffff; k = rp_tick(&S, t + 7 * MS, rep, RP_SESSIONS * 3);
++    CHECK(infos(rep, k, txt, sizeof txt) == 1 && strstr(txt, "\"use\":\"off\"") && strstr(txt, "\"seats\":8") && strstr(txt, "\"taken\":255}"), "not used; seats and players clamped");
++    g_input = 0; k = rp_tick(&S, t + 8 * MS, rep, RP_SESSIONS * 3); CHECK(infos(rep, k, txt, sizeof txt) == 1 && strstr(txt, "\"use\":\"pause\""), "the game window not key: paused");
++    g_input = 1; state(A1, t + 100 * MS, sid, 3, 0, 0, 0); rp_tick(&S, t + 101 * MS, rep, RP_SESSIONS * 3);
++    state(A1, t + 1500 * MS, sid, 4, 0, 0, 0); k = rp_tick(&S, t + 1501 * MS, rep, RP_SESSIONS * 3); CHECK(!infos(rep, k, txt, sizeof txt), "nothing new within 2 s");
++    state(A1, t + 2200 * MS, sid, 5, 0, 0, 0); k = rp_tick(&S, t + 2201 * MS, rep, RP_SESSIONS * 3); CHECK(infos(rep, k, txt, sizeof txt) == 1, "renewed after 2 s");
++    hello(A2, t + 2300 * MS, "482913", "phone-ana-1"); welcome(sid2, &p);   // the same phone from another address: a new session id, info again once it streams
++    state(A2, t + 2301 * MS, sid2, 0, 0, 0, 0); k = rp_tick(&S, t + 2302 * MS, rep, RP_SESSIONS * 3);
++    CHECK(infos(rep, k, txt, sizeof txt) == 1 && strstr(txt, sid2) && rep[0].to.ip == A2.ip, "a new session gets its info at once");
++    g_game = (rp_game){RP_USE_OWN, 4, 0x7};
++}
++int main(void) {
++    t_parse(); t_values(); t_sessions(); t_limits();t_pair_rumble(); t_info();
++    printf("t_remote: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/host/tests/t_remote_udp.c b/dm/host/tests/t_remote_udp.c
+new file mode 100644
+index 0000000..dae24b4
+--- /dev/null
++++ b/dm/host/tests/t_remote_udp.c
+@@ -0,0 +1,142 @@
++// Wi-Fi controllers end to end on loopback: remote_mac.c's real socket and thread, the player slots shared with the keyboard (pad_slots.h) and what hle_hid.c reports on each
++// npad. Three fake phones join Mario Kart's four players beside the keyboard (DM_KBD_PLAYER=own), a fourth is refused, a wrong code is refused, presses reach their own npads,
++// an older seq is dropped, a silent phone is released and then loses its player, the rejoin gets it back, bye and the host's quit are sent. The host's log lines go to stderr.
++#include <arpa/inet.h>
++#include <netinet/in.h>
++#include <poll.h>
++#include <stdarg.h>
++#include <sys/socket.h>
++#include <time.h>
++#include <unistd.h>
++#include "../hle_hid.c"
++#include "../remote_mac.h"
++
++void dm_haptics_apple_external(int p, void (*sink)(dm_haptic_state)) {(void)p;(void)sink;}
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } else fprintf(stderr, "ok: %s\n", msg); } while (0)
++int dm_opmode(void) { return 1; }   // docked: player 1 is npad No1 (id 0), player n is id n - 1
++uint64_t guest_ns(void) { return 1000000000ull; }
++uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
++uint64_t dm_guest_frame(void) { return 0; }
++void dm_touch_set(const dm_touch *t, int n) { (void)t; (void)n; }
++int touch_fill_n(void *out, int max, uint64_t now) { (void)out; (void)max; (void)now; return 0; }
++int gesture_fill(void *out, int n, uint64_t now) { (void)out; (void)n; (void)now; return 0; }
++void dm_gfx_shot_at(long frame, const char *path) { (void)frame; (void)path; }
++void hle_bind_system_event(void *g, int autoclear) { (void)g; (void)autoclear; }
++void hle_signal_system_event(void *g) { (void)g; }
++int hle_signal_bound_system_event(void *g) { (void)g; return 1; }
++void dm_gfx_texlist(int target) { (void)target; }
++void dm_gfx_texraw(uint64_t serial, const char *path) { (void)serial; (void)path; }
++void dm_ctl_peek(uint64_t a, int n) { (void)a; (void)n; }
++void dm_ctl_memdump(uint64_t a, uint64_t n, const char *path) { (void)a; (void)n; (void)path; }
++void dm_ctl_cvar_i32(uint64_t off, int32_t v) { (void)off; (void)v; }
++void dm_ctl_cvar_f32(uint64_t off, float v) { (void)off; (void)v; }
++void dm_gfx_texdump_next(const char *path) { (void)path; }
++void dm_gfx_passdump_next(long n) { (void)n; }
++
++static pad_slots g_slots; static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER; static _Atomic int g_changes;
++static void changed(void) { g_changes++; }
++static struct sockaddr_in g_host;
++typedef struct { int fd; char sid[17]; int player; uint32_t seq; } phone;
++static void msleep(int ms) { struct timespec t = {ms / 1000, (long)(ms % 1000) * 1000000L}; nanosleep(&t, NULL); }
++static void tx(phone *p, const char *fmt, ...) {
++    char m[600]; va_list ap; va_start(ap, fmt); vsnprintf(m, sizeof m, fmt, ap); va_end(ap);
++    sendto(p->fd, m, strlen(m), 0, (struct sockaddr *)&g_host, sizeof g_host);
++}
++static int rx(phone *p, const char *type, char *out, size_t cap, int ms) {   // the next message of that type within ms (others skipped)
++    char want[32]; snprintf(want, sizeof want, "\"t\":\"%s\"", type);
++    uint64_t end = now_ns() + (uint64_t)ms * 1000000ull;
++    while (now_ns() < end) {
++        struct pollfd pf = {p->fd, POLLIN, 0};
++        if (poll(&pf, 1, 10) <= 0) continue;
++        ssize_t n = recv(p->fd, out, cap - 1, 0); if (n <= 0) continue;
++        out[n] = 0;
++        if (strstr(out, want)) return 1;
++    }
++    return 0;
++}
++static phone open_phone(void) {
++    phone p = {socket(AF_INET, SOCK_DGRAM, 0), "", 0, 0};
++    struct sockaddr_in a = {.sin_len = sizeof a, .sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)}; bind(p.fd, (struct sockaddr *)&a, sizeof a);
++    return p;
++}
++static int join(phone *p, const char *code, const char *id, const char *name, char *out, size_t cap) {
++    tx(p, "{\"v\":1,\"t\":\"hello\",\"code\":\"%s\",\"id\":\"%s\",\"name\":\"%s\"}", code, id, name);
++    uint64_t end = now_ns() + 1000000000ull;
++    while (now_ns() < end) {
++        struct pollfd pf = {p->fd, POLLIN, 0};
++        if (poll(&pf, 1, 10) <= 0) continue;
++        ssize_t n = recv(p->fd, out, cap - 1, 0); if (n <= 0) continue;
++        out[n] = 0;
++        if (strstr(out, "\"t\":\"reject\"")) return 0;
++        const char *s = strstr(out, "\"sid\":\""), *pl = strstr(out, "\"player\":");
++        if (strstr(out, "\"t\":\"welcome\"") && s && pl) { memcpy(p->sid, s + 7, 16); p->sid[16] = 0; p->player = atoi(pl + 9); p->seq = 0; return 1; }
++    }
++    return 0;
++}
++static void st(phone *p, unsigned b, double lx, double ly) { tx(p, "{\"v\":1,\"t\":\"state\",\"sid\":\"%s\",\"seq\":%u,\"b\":%u,\"lx\":%.3f,\"ly\":%.3f,\"ms\":%u}", p->sid, ++p->seq, b, lx, ly, p->seq); }
++static NpadState npad(int player) { NpadState s; fill(&s, dm_player_npad(player - 1), STYLE_FULLKEY); return s; }
++static int wait_npad(int player, uint64_t buttons, int ms) {   // the game reads these buttons on that player's npad within ms
++    for (int i = 0; i < ms; i += 5) { NpadState s = npad(player); if (s.attributes && (s.buttons & 0xffff) == buttons) return 1; msleep(5); }
++    return 0;
++}
++
++int main(void) {
++    char m[600];
++    setenv("DM_REMOTE", "1", 1); setenv("DM_REMOTE_PORT", "0", 1); setenv("DM_REMOTE_BIND", "127.0.0.1", 1); setenv("DM_REMOTE_CODE", "482913", 1);
++    setenv("DM_REMOTE_PLAYERS", "4", 1); setenv("DM_REMOTE_TIMEOUT_MS", "600", 1);
++    uint32_t mk8[] = {0, 1, 2, 3, NPAD_HANDHELD}; h_hid_SetIds(mk8, 5);   // as Mario Kart 8 Deluxe in a four-player race (0x10f)
++    static const char kbd = 0; pad_slot_take(&g_slots, &kbd, "keyboard");   // DM_KBD_PLAYER=own
++    CHECK(dm_remote_start(&g_slots, &g_mu, NULL, changed) && dm_remote_port(), "the receiver listens");
++    g_host = (struct sockaddr_in){.sin_len = sizeof g_host, .sin_family = AF_INET, .sin_port = htons(dm_remote_port()), .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
++    char info[160]; CHECK(dm_remote_info(info, sizeof info) && strstr(info, "127.0.0.1:") && strstr(info, "code 482913"), info);
++
++    phone a = open_phone(), b = open_phone(), c = open_phone(), d = open_phone(), e = open_phone();
++    CHECK(!join(&e, "999999", "phone-eve-99", "Eve", m, sizeof m) && strstr(m, "\"reason\":\"code\""), "a wrong code is refused");
++    CHECK(join(&a, "482913", "phone-ana-01", "Ana", m, sizeof m) && a.player == 2, "phone 1 is player 2 (the keyboard is player 1)");
++    CHECK(join(&b, "482913", "phone-luis-2", "Luis", m, sizeof m) && b.player == 3, "phone 2 is player 3");
++    CHECK(join(&c, "482913", "phone-sol-03", "Sol", m, sizeof m) && c.player == 4, "phone 3 is player 4");
++    CHECK(!join(&d, "482913", "phone-max-04", "Max", m, sizeof m) && strstr(m, "\"reason\":\"full\""), "a fourth phone: the four players are taken");
++    CHECK(atomic_load(&g_players) == 0xf, "hid has players 1..4 connected");
++    char pl[256]; dm_remote_players(pl, sizeof pl); CHECK(!strcmp(pl, "Ana (2), Luis (3), Sol (4)"), pl);
++
++    st(&a, DM_BTN_A, 1, 0); CHECK(rx(&a, "ack", m, sizeof m, 500) && strstr(m, "\"player\":2"), "the first state is acked with the player");
++    CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"game\":\"" DM_GAME_NAME "\"") && strstr(m, "\"use\":\"own\"") && strstr(m, "\"seats\":4") && strstr(m, "\"taken\":15}"),
++          "info: the game reads the phone's npad as its own player, four seats, players 1..4 held");
++    uint32_t one[] = {0, NPAD_HANDHELD}; h_hid_SetIds(one, 2); st(&a, DM_BTN_A, 1, 0);
++    CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"use\":\"p1\"") && strstr(m, "\"seats\":1"), "a one-player screen: the phone is told it feeds player 1");
++    h_hid_SetIds(mk8, 5); st(&a, DM_BTN_A, 1, 0); CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"use\":\"own\""), "back to four players");
++    CHECK(wait_npad(2, DM_BTN_A, 500) && npad(2).lx == DM_STICK_MAX, "player 2's npad (No2) reads A and the stick full right");
++    st(&b, DM_BTN_B, 0, -1);
++    CHECK(wait_npad(3, DM_BTN_B, 500) && npad(3).ly == -DM_STICK_MAX && (npad(2).buttons & 0xffff) == DM_BTN_A, "player 3 reads B, player 2 still A");
++    CHECK((npad(1).buttons & 0xffff) == 0, "player 1 (the keyboard) reads nothing from the phones");
++    a.seq = 10; st(&a, DM_BTN_X, 0, 0);
++    tx(&a, "{\"v\":1,\"t\":\"state\",\"sid\":\"%s\",\"seq\":5,\"b\":%u,\"lx\":0,\"ly\":0}", a.sid, DM_BTN_Y);
++    msleep(60); CHECK((npad(2).buttons & 0xffff) == DM_BTN_X, "an older seq arriving late is dropped");
++    tx(&d, "{\"v\":1,\"t\":\"state\",\"sid\":\"%s\",\"seq\":99,\"b\":1}", a.sid);
++    msleep(60); CHECK((npad(2).buttons & 0xffff) == DM_BTN_X, "another address cannot use a session id");
++    tx(&d, "{\"v\":1,\"t\":\"state\",\"sid\":\"00000000000000ff\",\"seq\":1,\"b\":1}"); CHECK(rx(&d, "kick", m, sizeof m, 500), "an unknown session is told to join again");
++
++    // keep phones 2 and 3 alive at 60 Hz while phone 1 goes quiet
++    uint64_t t0 = now_ns(); int released = 0, freed = 0;
++    while (now_ns() - t0 < 1500000000ull && !freed) {
++        st(&b, DM_BTN_B, 0, -1); st(&c, 0, 0, 0); msleep(16);
++        NpadState s = npad(2);
++        if (!released && s.attributes && !(s.buttons & 0xffff)) { released = 1; fprintf(stderr, "ok: phone 1 released after %llu ms\n", (unsigned long long)((now_ns() - t0) / 1000000)); }
++        if (!s.attributes) { freed = 1; fprintf(stderr, "ok: phone 1 lost its player after %llu ms\n", (unsigned long long)((now_ns() - t0) / 1000000)); }
++    }
++    CHECK(released && freed, "a silent phone is released (300 ms), then loses its player (600 ms)");
++    CHECK(rx(&a, "kick", m, sizeof m, 300) && strstr(m, "timeout"), "and is told");
++    CHECK((npad(3).buttons & 0xffff) == DM_BTN_B, "the phones that kept sending keep playing");
++    CHECK(join(&a, "482913", "phone-ana-01", "Ana", m, sizeof m) && a.player == 2, "the rejoin gets player 2 back");
++    st(&a, DM_BTN_ZR, 0, 0); CHECK(wait_npad(2, DM_BTN_ZR, 500), "and plays");
++    st(&b, DM_BTN_B, 0, -1);   // phone 2 is still sending
++    tx(&c, "{\"v\":1,\"t\":\"bye\",\"sid\":\"%s\"}", c.sid); CHECK(rx(&c, "bye", m, sizeof m, 500), "bye is answered");
++    msleep(30); CHECK(!npad(4).attributes && atomic_load(&g_players) == 0x7, "and player 4 is free");
++    CHECK(join(&d, "482913", "phone-max-04", "Max", m, sizeof m) && d.player == 4, "the waiting phone takes player 4 now");
++    dm_remote_stop();
++    CHECK(rx(&a, "bye", m, sizeof m, 500) && strstr(m, "\"reason\":\"host\"") && rx(&d, "bye", m, sizeof m, 500), "the host's quit reaches the phones");
++    CHECK(atomic_load(&g_players) == 0x1 && g_changes >= 6, "every phone's player is free");
++    printf("t_remote_udp: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
+index be773ea..1412e0a 100644
+--- a/dm/tools/impact_map.tsv
++++ b/dm/tools/impact_map.tsv
+@@ -106,6 +106,11 @@ dm/host/main.c	*:*	the host's start
+ dm/host/loader.c	*:*	module loading
+ dm/host/hle.c	hle:*	the HLE tables
+ dm/host/front_mac.m	present:*	the Mac front end
++dm/host/remote_mac.c	hle:*hid*	the Mac's Wi-Fi controllers (opt-in, DM_REMOTE)
++dm/host/remote_proto.h	hle:*hid*	Wi-Fi controller protocol and sessions
++dm/host/kbd_map.h	hle:*hid*	the Mac keyboard map
++dm/host/controls_mac.m	hle:*hid*	the Mac keyboard map's file and window
++dm/remote_pad/*	-	the phone controller app (runs on the phone, not in the host)
+ dm/host/dm_input.h	hle:*hid*	the shared input interface
+ dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
+ dm/host/motion_fusion.h	hle:*SixAxisSensor*	six-axis motion mapping and orientation
+diff --git a/dm/tools/remote_phone.py b/dm/tools/remote_phone.py
+new file mode 100644
+index 0000000..3bfdbd3
+--- /dev/null
++++ b/dm/tools/remote_phone.py
+@@ -0,0 +1,91 @@
++#!/usr/bin/env python3
++"""Fake phones for the Wi-Fi controllers (docs/wifi-controllers.md): joins the host like dm/remote_pad does and sends whole states at 60 Hz, for checking a host without a phone.
++  remote_phone.py --code 482913 [--host 127.0.0.1] [--port 47800] [--phones 3] [--seconds 10] [--press A] [--every 1.0]
++Each phone presses --press for half of every --every seconds and tilts the left stick right meanwhile. One JSON line per event on stdout (join, welcome, reject, ack counts, kick,
++bye, info when what it says changes); exit 0 when every phone got a player and acks, 1 otherwise. Standard library only."""
++import argparse
++import json
++import secrets
++import select
++import socket
++import sys
++import time
++
++BUTTONS = {'A': 1, 'B': 2, 'X': 4, 'Y': 8, 'LS': 16, 'RS': 32, 'L': 64, 'R': 128, 'ZL': 256, 'ZR': 512, 'Plus': 1024, 'Minus': 2048,
++           'Left': 4096, 'Up': 8192, 'Right': 16384, 'Down': 32768}
++
++
++def say(**ev):
++    print(json.dumps(ev), flush=True)
++
++
++class Phone:
++    def __init__(self, n, host, port, code):
++        self.n, self.addr, self.code = n, (host, port), code
++        self.id = f'fake{n}-' + secrets.token_hex(6)
++        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
++        self.sock.bind(('0.0.0.0', 0))
++        self.sid, self.player, self.seq, self.acks, self.last_hello, self.reject = None, None, 0, 0, 0.0, None
++        self.info = None   # what the host's last info said: game, use, seats, taken
++
++    def send(self, **m):
++        self.sock.sendto(json.dumps(dict(v=1, **m), separators=(',', ':')).encode(), self.addr)
++
++    def hello(self):
++        self.last_hello = time.monotonic()
++        self.send(t='hello', code=self.code, id=self.id, name=f'Fake {self.n}')
++
++    def state(self, b, lx, start):
++        if not self.sid: return
++        self.seq += 1
++        self.send(t='state', sid=self.sid, seq=self.seq, b=b, lx=lx, ly=0, rx=0, ry=0, ms=int((time.monotonic() - start) * 1000))
++
++    def receive(self, data):
++        try: m = json.loads(data)
++        except ValueError: return
++        t = m.get('t')
++        if t == 'welcome':
++            if m.get('sid') != self.sid: self.seq = 0
++            self.sid, self.player = m.get('sid'), m.get('player')
++            say(ev='welcome', phone=self.n, player=self.player)
++        elif t == 'ack': self.acks += 1; self.player = m.get('player')
++        elif t == 'info' and m.get('sid') == self.sid:
++            info = {k: m.get(k) for k in ('game', 'use', 'seats', 'taken')}
++            if info != self.info: self.info = info; say(ev='info', phone=self.n, player=m.get('player'), **info)
++        elif t == 'reject': self.reject = m.get('reason'); say(ev='reject', phone=self.n, reason=self.reject)
++        elif t == 'kick': self.sid = None; say(ev='kick', phone=self.n, reason=m.get('reason')); self.hello()
++        elif t == 'bye': say(ev='bye', phone=self.n, reason=m.get('reason')); self.sid = None
++
++
++def main():
++    ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
++    ap.add_argument('--host', default='127.0.0.1'); ap.add_argument('--port', type=int, default=47800); ap.add_argument('--code', required=True)
++    ap.add_argument('--phones', type=int, default=1); ap.add_argument('--seconds', type=float, default=10); ap.add_argument('--press', default='A')
++    ap.add_argument('--every', type=float, default=1.0)
++    a = ap.parse_args()
++    if a.press not in BUTTONS: ap.error(f'--press: one of {" ".join(BUTTONS)}')
++    phones = [Phone(i + 1, a.host, a.port, a.code) for i in range(a.phones)]
++    start = time.monotonic(); next_tick = start
++    for p in phones: p.hello(); say(ev='join', phone=p.n, id=p.id)
++    while time.monotonic() - start < a.seconds:
++        now = time.monotonic()
++        r, _, _ = select.select([p.sock for p in phones], [], [], max(0.0, next_tick - now))
++        for p in phones:
++            if p.sock in r:
++                data, src = p.sock.recvfrom(2048)
++                if src[1] == a.port: p.receive(data)
++        if time.monotonic() >= next_tick:
++            next_tick += 1 / 60
++            on = ((time.monotonic() - start) % a.every) < a.every / 2
++            for p in phones:
++                if p.sid: p.state(BUTTONS[a.press] if on else 0, 1.0 if on else 0.0, start)
++                elif p.reject not in ('code', 'version') and time.monotonic() - p.last_hello > 0.5: p.hello()
++    for p in phones:
++        if p.sid: p.send(t='bye', sid=p.sid)
++    ok = all(p.player and p.acks for p in phones)
++    say(ev='done', ok=ok, phones=[{'phone': p.n, 'player': p.player, 'acks': p.acks, 'states': p.seq, 'reject': p.reject, 'info': p.info} for p in phones])
++    return 0 if ok else 1
++
++
++if __name__ == '__main__':
++    sys.exit(main())
+diff --git a/docs/development.md b/docs/development.md
+index 6b414eb..a7202d3 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
+ | Host (`dm/host`) | Stands in for the Horizon kernel and the system services the games call: threads and synchronization, memory, file system with transactional saves, HID, audio, movies (VP9 through libvpx, Vorbis sound through stb_vorbis), software keyboard, focus and lifecycle |
+ | Graphics (`dm/gfx`) | NVN on Metal. Shaders are extracted by `shader_split.py` from Nintendo's containers and from Unity's `Shader` objects, then translated offline. Mario: 16,266 of 16,268 shaders compile. Engage: 9,268 of 9,269. Games that render with Vulkan (Hades) or OpenGL (Digimon Story Cyber Sleuth) go through layers of their own on Metal (`dm/gfx/vk`, `dm/gfx/gl`) |
+ | Audio | Games that carry the SDK's audio renderer (Mario) run it in-process; games that use AudioOut directly (Engage: Wwise) feed it straight. Output goes through Core Audio (default on iOS, `DM_AUDIO=1` on the Mac) |
+-| Input | iOS: the touch gamepad and physical controllers, all as player 1; shaking the phone shakes the controller (its six-axis sensor, `hle_hid.c`; the accelerometer in `DmGamepad.m`, threshold `DM_SHAKE_G`, 1.5 G by default). Mac: scripted input (`DM_KEYS=<seconds>:<button>,…`, `Shake` for a shake, with `DM_KBD=<text>` answering the system keyboard) or `DM_WINDOW=1` for a window with keyboard input (Space shakes) and physical controllers (buttons by position, as on the iPhone). On the Mac each controller is a player of its own, for local co-op: the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (`pad_slots.h`); a controller that is removed frees its player and gets it back when it reconnects, and the log names each one's player and npad (`controller 'Xbox Wireless Controller' connected: player 2 (npad 1)`). Player 1 is the Handheld npad in handheld mode and No1 docked, player n is No n; the game's supported npad ids decide how many play (`hle_hid.c`): a one-player game gets every controller as player 1, and a controller past a game's last player is not used. `DM_PAD_MERGE=1` makes every controller player 1, as before; `DM_KBD_PLAYER=own` makes the keyboard player 1 on its own, with the controllers from player 2 on. The window goes fullscreen from its green button or ⌃⌘F; `DM_FULLSCREEN=1` starts it that way. In fullscreen, a screen whose refresh rate is not a multiple of the game's (144 or 165 Hz) runs at one that is (120 Hz) until the window leaves fullscreen; `DM_SCREEN_MATCH=0` keeps its rate. The drawable follows the window in pixels (fullscreen at the screen's resolution); `DM_METAL_HUD=1` shows Apple's performance HUD (on the iPhone too, from `Documents/env.txt`). The left mouse button is the touchscreen, on the 16:9 picture. Motion: a controller with a gyroscope drives its player's six-axis sensor (`motion_apple.h` → `dm_motion_set`, `hle_hid.c`; orientation from the gyro with tilt correction toward gravity, `motion_fusion.h`), and on iOS the phone's own device motion drives player 1's while no controller supplies fresh motion (`DmGamepad.m`, turned into the Switch frame for the screen's orientation; `DM_PHONE_MOTION=0|1|auto`; `1` selects only the phone). On the Mac, a Switch Pro Controller whose GameController motion is empty can use passive HID reports instead (`motion_pro_mac.h`; `DM_MOTION_HID=0` turns this reader off). This requires exactly one Pro in each API so it can use the same player slot without guessing; multiple Pros retain GameController input. Raw HID has its own orientation and nominal sensor scales; hardware validation of the reworked reader remains open ([Pro Controller fallback](reference/services.md#switch-pro-controller-advertises-motion-but-sends-zeroes)). `DM_MOTION_AXES` / `DM_MOTION_ACC_SIGN` apply only to GameController. Each source keeps its own orientation. Without live motion the sensor lies flat as before. `DM_MOTION_LOG=1` logs player 1's mapped sample once a second per source; `DM_MOTION_AXES` (e.g. `x,-z,y`) and `DM_MOTION_ACC_SIGN=-1` remap a controller whose axes differ, `DM_MOTION_GAIN` sets the tilt correction (0.5), `DM_MOTION=0` turns motion off (the NSP script's `--no-motion` builds it in). The console's own sensor (`SevenSixAxisSensor`, read in handheld mode) still reports no states. In handheld mode the touches also drive `hid::GetGestureStates` (taps, presses, pans, swipes, pinches and rotations recognized by the host, `hle_touch.c`) |
++| Input | iOS: the touch gamepad and physical controllers, all as player 1; shaking the phone shakes the controller (its six-axis sensor, `hle_hid.c`; the accelerometer in `DmGamepad.m`, threshold `DM_SHAKE_G`, 1.5 G by default). Mac: scripted input (`DM_KEYS=<seconds>:<button>,…`, `Shake` for a shake, with `DM_KBD=<text>` answering the system keyboard) or `DM_WINDOW=1` for a window with keyboard input (Space shakes) and physical controllers (buttons by position, as on the iPhone). On the Mac each controller is a player of its own, for local co-op: the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (`pad_slots.h`); a controller that is removed frees its player and gets it back when it reconnects, and the log names each one's player and npad (`controller 'Xbox Wireless Controller' connected: player 2 (npad 1)`). Player 1 is the Handheld npad in handheld mode and No1 docked, player n is No n; the game's supported npad ids decide how many play (`hle_hid.c`): a one-player game gets every controller as player 1, and a controller past a game's last player is not used. `DM_PAD_MERGE=1` makes every controller player 1, as before; `DM_KBD_PLAYER=own` makes the keyboard player 1 on its own, with the controllers from player 2 on. Phones over Wi-Fi (`DM_REMOTE=1`, the Mando NX app in `dm/remote_pad`) take players from the same table, and the keyboard's keys can be changed in the Keyboard Controls window (⌘K): [Wi-Fi controllers](wifi-controllers.md). The window goes fullscreen from its green button or ⌃⌘F; `DM_FULLSCREEN=1` starts it that way. In fullscreen, a screen whose refresh rate is not a multiple of the game's (144 or 165 Hz) runs at one that is (120 Hz) until the window leaves fullscreen; `DM_SCREEN_MATCH=0` keeps its rate. The drawable follows the window in pixels (fullscreen at the screen's resolution); `DM_METAL_HUD=1` shows Apple's performance HUD (on the iPhone too, from `Documents/env.txt`). The left mouse button is the touchscreen, on the 16:9 picture. Motion: a controller with a gyroscope drives its player's six-axis sensor (`motion_apple.h` → `dm_motion_set`, `hle_hid.c`; orientation from the gyro with tilt correction toward gravity, `motion_fusion.h`), and on iOS the phone's own device motion drives player 1's while no controller supplies fresh motion (`DmGamepad.m`, turned into the Switch frame for the screen's orientation; `DM_PHONE_MOTION=0|1|auto`; `1` selects only the phone). On the Mac, a Switch Pro Controller whose GameController motion is empty can use passive HID reports instead (`motion_pro_mac.h`; `DM_MOTION_HID=0` turns this reader off). This requires exactly one Pro in each API so it can use the same player slot without guessing; multiple Pros retain GameController input. Raw HID has its own orientation and nominal sensor scales; hardware validation of the reworked reader remains open ([Pro Controller fallback](reference/services.md#switch-pro-controller-advertises-motion-but-sends-zeroes)). `DM_MOTION_AXES` / `DM_MOTION_ACC_SIGN` apply only to GameController. Each source keeps its own orientation. Without live motion the sensor lies flat as before. `DM_MOTION_LOG=1` logs player 1's mapped sample once a second per source; `DM_MOTION_AXES` (e.g. `x,-z,y`) and `DM_MOTION_ACC_SIGN=-1` remap a controller whose axes differ, `DM_MOTION_GAIN` sets the tilt correction (0.5), `DM_MOTION=0` turns motion off (the NSP script's `--no-motion` builds it in). The console's own sensor (`SevenSixAxisSensor`, read in handheld mode) still reports no states. In handheld mode the touches also drive `hid::GetGestureStates` (taps, presses, pans, swipes, pinches and rotations recognized by the host, `hle_touch.c`) |
+ | iOS app | One unsigned IPA for iPhone and iPad. The rewritten code is embedded in the executable; the shader libraries, the RomFS and the game icon are inside the app. A settings screen comes before the game (`Launcher.swift`, drawn from `dm/launcher.json`, which `dm/games/settings.py` writes from `dm/games/settings.tsv`); the host's loading starts at app launch meanwhile, and the frame rate and render scale go into the frame step state when the game starts (`loader.c` `dm_fps_state_apply`) |
+ | Known gaps | Conditional render is always drawn; `MultiDraw*IndirectCount` waits on the CPU for the GPU-written count; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. The bundled prewarm lists are empty. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
+ 
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 901c65a..5bc18a1 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -53,6 +53,7 @@ DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how
+ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
+ DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
+ DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
++DM_KBD_MAP	path	The Mac keyboard map file (default `~/Library/Application Support/nxnative/keyboard.txt`; no file: the built-in keys); the Keyboard Controls window (⌘K) writes it ([Wi-Fi controllers](wifi-controllers.md#the-keyboard-map))
+ DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
+ DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold][*count/interval],…` presses buttons, sticks and `Shake` at those times
+ DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
+@@ -212,6 +213,13 @@ DM_PSO_WAITLOG	diagnostic	`=1` logs each draw that waited more than 20 ms for it
+ DM_QOS_EDGES	switch	`=e1,e2`: the Switch priority edges of `DM_QOS_MAP` (default `44,59`)
+ DM_QOS_MAP	switch	`=1` maps guest thread priority to QoS class: ≤ 44 user-interactive, 45–59 user-initiated, the rest utility (off by default: every guest thread runs user-interactive)
+ DM_REGIONS	diagnostic	`=<file>` writes the table of the SDK's address regions every 2 s (alias offset, size, where the request returns to in the game, bytes mapped, the part opened, the SDK offset the request came through; `hle_svc.c` "Address regions"); the NSP script's address region check sets it
++DM_REMOTE	switch	`1` starts the Mac host's Wi-Fi controller receiver: phones running the Mando NX app join over UDP as players of their own (off by default: no socket is opened)
++DM_REMOTE_BIND	switch	The IPv4 address the Wi-Fi controller receiver listens on (default every address of the Mac; `127.0.0.1` keeps it to this Mac)
++DM_REMOTE_CODE	switch	The Wi-Fi controllers' pairing code, 4 to 32 letters and digits (unset: a random 6-digit code for this start, printed in the log)
++DM_REMOTE_PLAYERS	switch	The highest player a Wi-Fi phone may be, 1 to 8 (default 8; `4` for a four-player game beside the keyboard)
++DM_REMOTE_PORT	switch	The Wi-Fi controller receiver's UDP port (default 47800; `0` binds any free port, for tests)
++DM_REMOTE_QR	switch	`1` opens the Mac phone-pairing QR window at game startup; the QR is also available from Controllers (Command-J)
++DM_REMOTE_TIMEOUT_MS	switch	How long a silent Wi-Fi phone keeps its player, 200 to 60000 ms (default 5000); its buttons are released after half of that, at most 500 ms
+ DM_RENDER_SCALE	player	`0.5` to `1.0`: fixes the game's 3D views at that fraction of their size and turns its dynamic resolution off, for builds with a render scale stub; `1.0` (the default) keeps it
+ DM_RESOURCE_AOC	path	The add-on content folder the iOS build copies into the app's `aoc/` (empty for none); written by `gen_resources.py`, read by `stage_resources.sh`
+ DM_RESOURCE_CHAIN_H	path	Path of `dm/gfx/nvn/dmsh_chain.h`, written to `Gen/resources.env` by `build_ipa.sh`; the Xcode copy phase (`stage_resources.sh`) stops when the prepared shaders are not of its chain version
+diff --git a/docs/wifi-controllers.md b/docs/wifi-controllers.md
+new file mode 100644
+index 0000000..586f548
+--- /dev/null
++++ b/docs/wifi-controllers.md
+@@ -0,0 +1,127 @@
++# Wi-Fi controllers and the Mac keyboard map
++
++On the Mac host, phones can be controllers over the local network, each one a player of its own, beside the keyboard and physical controllers: local multiplayer such as Mario Kart 8 Deluxe's four-player split screen with the keyboard as player 1 and three phones. The phone app is [dm/remote_pad](../dm/remote_pad/README.md) (Flutter, iOS and Android, Spanish interface). The keyboard's keys can be changed in a window of the game and are kept between runs.
++
++- [Playing](#playing)
++- [Host switches](#host-switches)
++- [Players](#players)
++- [Protocol](#protocol)
++- [Security](#security)
++- [The keyboard map](#the-keyboard-map)
++- [Tests](#tests)
++- [Limits](#limits)
++
++## Playing
++
++1. Start the game on the Mac with `DM_REMOTE=1` (and, for keyboard + phones, `DM_KBD_PLAYER=own`, so the keyboard keeps player 1 for itself). The log, the window title and the **Controllers** menu show the Mac's address, the port and the pairing code: `Wi-Fi: 192.168.1.23:47800, code 482913`. If macOS asks whether the host may accept incoming network connections, allow it.
++2. On each phone, open **Mando NX**, type the Mac's IP address, the port and the code, and tap **Conectar**. The phone shows its player (**Jugador 2**), the link and its round-trip time. The phone and the Mac must be on the same network. iOS asks once for local network access; the app needs it.
++3. **Salir** on the phone frees its player at once. A phone that goes quiet (locked, out of range) has its buttons released after 0.5 s and loses its player after 5 s; when it comes back it joins again by itself and gets the same player, unless another phone or controller took it meanwhile.
++
++`dm/tools/remote_phone.py --code <code> --phones 3` stands in for phones, to check a host without one.
++
++## Host switches
++
++Off unless `DM_REMOTE=1`: without it the host opens no socket and behaves as before.
++
++| Switch | Meaning |
++|---|---|
++| `DM_REMOTE=1` | Starts the receiver (`dm/host/remote_mac.c`): one IPv4 UDP socket, one thread |
++| `DM_REMOTE_PORT` | UDP port, default 47800 (`0`: any free port, for tests) |
++| `DM_REMOTE_BIND` | The IPv4 address to listen on, default every address of the Mac (`127.0.0.1` keeps it to this Mac) |
++| `DM_REMOTE_CODE` | The pairing code, 4 to 32 letters and digits. Unset: a random 6-digit code for this start, printed in the log |
++| `DM_REMOTE_PLAYERS` | The highest player a phone may be, 1 to 8 (default 8). With `4`, a fourth phone beside the keyboard waits for a free player |
++| `DM_REMOTE_TIMEOUT_MS` | How long a silent phone keeps its player, 200 to 60000 ms (default 5000); its buttons are released after half of that, at most 500 ms |
++
++## Players
++
++Phones take players from the same slot table as physical controllers (`dm/host/pad_slots.h`, under a lock in `front_mac.m`), so a phone and a controller are never one player, and each player keeps its own npad (`hle_hid.c`: player n is npad No n). A phone takes, as a controller does, the free player its id last held, then player 1 if free, then the lowest player nobody has held yet, then the lowest free one, all within `DM_REMOTE_PLAYERS`. Its slot name is `wifi:<client id>`, so a rejoining phone finds its player again. A controller connecting while phones play takes a player no phone holds. Eight players at most.
++
++While the game window is not key (another app in front, the Keyboard Controls window), phones are released, as the keyboard and controllers are; back in focus they play again. Without a window (`DM_WINDOW` unset, tests) phones play and the keyboard does not.
++
++## Protocol
++
++Version 1. One JSON object per UDP datagram, UTF-8, at most 512 bytes; `v` is the version in every message. Unknown keys are ignored, so later versions can add fields. The host's parser takes a flat object of strings, numbers, `true`, `false` and `null` only (nothing nested), at most 32 members and strings of at most 64 bytes; anything else is dropped and counted (the log sums them up every 10 s).
++
++Phone to host:
++
++| `t` | Fields | When |
++|---|---|---|
++| `hello` | `code` (the pairing code), `id` (8–32 of `A-Z a-z 0-9 _ -`, random per installation and kept), `name` (optional, shown in the log and the menu, cut to 32 bytes) | every 500 ms until a `welcome` or `reject`; again after a `kick` |
++| `state` | `sid`, `seq` (0–2³²−1, one more per datagram), `b` (buttons, 0–65535), `lx` `ly` `rx` `ry` (−1 to 1, y up; optional, 0), `ms` (optional: the phone's clock, echoed in acks) | 50–60 times a second, the whole state each time, changed or not: it is also the heartbeat |
++| `bye` | `sid` | leaving |
++
++`b` has NpadButton's bits (`dm/host/dm_input.h`): A 1, B 2, X 4, Y 8, left stick press 16, right stick press 32, L 64, R 128, ZL 256, ZR 512, + 1024, − 2048, D-pad left 4096, up 8192, right 16384, down 32768.
++
++Host to phone:
++
++| `t` | Fields | When |
++|---|---|---|
++| `welcome` | `sid` (16 hex digits), `player` (1–8), `hz` (60), `timeout_ms` | a `hello` with the right code. A repeated `hello` from the same address gets the same session; from another address (the app restarted, the phone changed network) a new `sid` on the same player |
++| `reject` | `reason`: `code` (wrong code), `full` (no free player), `busy` (too many wrong codes, try again in a minute), `version` | a `hello` that cannot join |
++| `ack` | `sid`, `seq` (the newest taken), `player`, `ms` (the last one received) | the first state at once, then every 250 ms |
++| `kick` | `reason`: `session` (a `sid` the host does not know: it restarted or the session ended), `timeout` | the phone joins again with `hello` |
++| `bye` | `reason`: `left` (answering the phone's `bye`), `host` (the host quits) | |
++| `info` | `sid`, `is` (0–2³²−1, one more per info; the phone drops older ones), `player`, `game` (the game profile's name, at most 48 bytes), `use`, `seats` (1–8), `taken` (bit n: player n + 1 has a controller, phone or not) | once the phone streams, then on a change and every 2 s |
++
++`info.use` is what the game makes of the phone's player, from the npads it supports (`SetSupportedNpadIdType`, `hle_hid.c` `dm_hid_player_use`): `own` (the game reads that player's npad itself), `p1` (a one-player screen: the controller feeds player 1, as every controller does there), `off` (the game takes fewer players now: not used), `pause` (the game window is not key: released). `seats` is how many players the game takes now (Mario Kart 8 Deluxe: 4 for local play). These are general: nothing is read from a game's memory, so they hold for every game; a character, a kart or a race position would need per-game, per-build knowledge.
++
++Ordering: the host takes a state only when its `seq` is newer than the last one taken (serial number arithmetic, so 0 follows 2³²−1); a late or repeated datagram is dropped, and a lost one is replaced by the next, which carries the whole state. The first state of a session is taken whatever its `seq`. Sticks: each axis is clamped to −1..1, then the pair to the unit circle, then scaled to ±32767; the app applies a 12 % dead zone before sending. The phone counts the host as gone after 2 s without an ack (it keeps sending and says hello again every second); after a `bye` with reason `host` it keeps trying every 2 s, so it joins again when the game is started again.
++
++Host side: `dm/host/remote_proto.h` (parsing, validation, sessions; no socket), `dm/host/remote_mac.c` (socket and thread). Phone side: `dm/remote_pad/lib/protocol.dart` and `client.dart`.
++
++## Security
++
++- Opt-in: no socket without `DM_REMOTE=1`; `DM_REMOTE_BIND` can keep it to one network.
++- Joining needs the pairing code. Wrong codes are limited before any code is compared: 5 a minute from one address, 30 a minute from all; past that, `busy`. Codes are compared in constant time.
++- A session id is 64 random bits (`arc4random_buf`) and works only from the address and port that joined; a datagram from anywhere else is dropped. At most 8 sessions, 250 datagrams a second per phone, 20 `kick` replies a second; no reply is larger than the datagram that caused it.
++- Not encrypted: someone who can capture the Wi-Fi's traffic can read the code and the session ids. Use it on a network you trust, and a longer `DM_REMOTE_CODE` on a shared one.
++- The pairing code is not printed in the log when it comes from `DM_REMOTE_CODE` (only a code the host makes itself is, since there is nowhere else to read it).
++
++## The keyboard map
++
++`dm/host/kbd_map.h`. Without a map file the keys are the ones the Mac always had: WASD left stick, arrow keys D-pad, J A, K B, U X, I Y, Q L, E R, Z ZL, C ZR, F / G stick presses, Return +, Tab −, Space shakes the controller; the right stick has no keys.
++
++**Controllers > Keyboard Controls…** (⌘K) in the game window opens a window with a row per action and two key boxes. Click a box and press a key: that key now does that action (a key used by another action moves here). Esc cancels, Delete clears the box, a ⌘ shortcut still goes to the menus. Shift, Control and Option, left and right, can be keys; Command, Caps Lock and Fn cannot. Each change applies at once and is saved at once; **Restore Defaults** goes back to the built-in keys and removes the file.
++
++The file is `~/Library/Application Support/nxnative/keyboard.txt` (`DM_KBD_MAP=<path>` names another), one map for every game. It can be edited by hand: a line per action, `<action>=<key>[,<key>…]`, keys by their US-keyboard name (the key's position, whatever the layout prints on it), `#` for comments:
++
++```
++A=Space
++B=K,LeftShift
++LStickUp=UpArrow
++DpadUp=
++```
++
++The actions are `A B X Y L R ZL ZR Plus Minus LS RS DpadUp DpadDown DpadLeft DpadRight LStickUp LStickDown LStickLeft LStickRight RStickUp RStickDown RStickLeft RStickRight Shake`. The keys are the letters, digits, `Minus Equal LeftBracket RightBracket Backslash Semicolon Quote Comma Period Slash Grave Section Return Tab Space Delete Escape ForwardDelete Help Home End PageUp PageDown LeftArrow RightArrow UpArrow DownArrow LeftShift RightShift LeftControl RightControl LeftOption RightOption`, `F1` to `F20`, `Keypad0` to `Keypad9` and `KeypadDecimal KeypadMultiply KeypadPlus KeypadClear KeypadDivide KeypadEnter KeypadMinus KeypadEquals`. An action the file names gets exactly the keys listed (none after the `=`: no key); the others keep the built-in ones. A line that names an unknown action or key is logged as `[RED]` and changes nothing.
++
++## Tests
++
++- `make -C dm/host/tests GAME=<id> remote` (also part of `run`): `t_remote` (parsing, validation, sticks, seq, sessions over a slot table shared with controllers: codes and their limit, players, release, timeout, rejoin, focus, bye, eight players), `t_kbd_map` (the built-in map is the old fixed one, files, round trip, modifiers), `t_remote_udp` (real datagrams on loopback through `remote_mac.c`'s thread to the npads `hle_hid.c` reports: three phones beside the keyboard in a four-player game).
++- `cd dm/remote_pad && flutter analyze && flutter test`: the protocol, the client's join / heartbeat / seq / rejoin / pause on a fake clock and over a loopback socket, the layout on five screen sizes, multi-touch routing, the screens.
++
++## Limits
++
++- IPv4 only; QR or manual address entry; automatic discovery is not implemented.
++- `info` says what the game's controller setup makes of a player, not what happens inside the game: no character, kart, place or lap (see `info` under [Protocol](#protocol)).
++- The phone gamepad has no right stick or stick presses; `rx`/`ry` stay 0. Tilt steering changes the left stick. Physical sensor and haptic feel need device testing.
++- The app is not tested on phones here; installing it needs the developer's own signing (iOS) or a debug build (Android): see [dm/remote_pad](../dm/remote_pad/README.md).
++
++## Gamer interface, QR, tilt and game rumble
++
++Use **Probar mando** to explore the controls offline (marked DEMO). In the Mac game, **Controllers → Phone Pairing QR… (⌘J)** shows a QR; the phone's **Escanear QR del Mac** fills the address, port and pairing code after validation. Press **Conectar** to join. The camera is only opened by the scan action, and manual entry remains available. `DM_REMOTE_QR=1` opens the pairing window at launch. Close that window to return input focus to the game.
++
++The URI is `nxmando://pair?v=1&host=<IPv4>&port=<port>&code=<code>`. Only those four single parameters, protocol 1, valid IPv4, valid port and code are accepted. The QR contains the pairing secret: show it only to intended players.
++
++The phone's tune button opens separate controls for **Volante por inclinación**, sensitivity, centering, game vibration and touch feedback. Hold the phone in landscape as a wheel, enable tilt and tap **Centrar volante** in the neutral position. Touching the joystick overrides tilt. Sensor errors fall back to the joystick; backgrounding releases controls. Tilt is accelerometer/gravity based steering, not game six-axis motion injection.
++
++Phones advertise `rumble:1` in hello. Legacy phones omit it and receive no rumble. The host routes that player's real game vibration to UDP messages with `t:rumble`, session `sid`, uint32 sequence `rs`, intensity `i`, sharpness `s` (both 0–1), and duration `ms` (0–1000). Changes are limited to 30/s, renewed every 100 ms, with 150 ms pulses that expire if connectivity stops. Phone checks session and sequence before native Core Haptics (iOS) or Vibrator (Android). The Mac's rumble gain applies before transport; touch feedback is independent.
++
++Dependencies: [mobile_scanner](https://pub.dev/packages/mobile_scanner), [sensors_plus](https://pub.dev/packages/sensors_plus). Simulator checks verify presentation and protocol but cannot verify physical camera scanning, motion direction or vibration feel. Character selection, minimap and automatic Bonjour discovery remain unimplemented.
++
++### Game card
++
++From the host's `info`, the pad shows a card in its middle: the game's name, a light per player the game takes (the phone's own in its player colour, glowing while the game reads it; other players with a controller filled), and a line saying what the game makes of the phone: **El juego lee tu mando como Jugador N**, a one-player screen where it also moves player 1, a game taking fewer players (the phone waits), or a pause while the game window on the Mac is not in front. The phone gives a short vibration when the game takes its controller. The offline demo shows the card with a demo game.
++
++### Visible motion switch
++
++The pad has an **Inclinación / Acelerómetro** switch, off by default. It uses the accelerometer only: no gyroscope is required. The joystick remains available and overrides tilt while touched. Turning motion off, leaving the app, sensor errors, stream closure or two seconds without valid readings cancels sensor input and releases steering back to the joystick. Tune/settings is drawn above the touch-input layer so it remains tappable. Minimap is not implemented; it would need game telemetry.

@@ -1,0 +1,12 @@
+.DS_Store
+# Never commit game files, keys or anything extracted from a game (AGENTS.md)
+*.nsp
+*.nsz
+*.xci
+*.xcz
+*.nca
+*.keys
+*.rar
+*_build/
+# Your own signing
+app/ios/Flutter/Signing.xcconfig

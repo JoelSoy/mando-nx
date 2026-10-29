@@ -1,0 +1,4 @@
+// Copy to Signing.xcconfig (not committed) and set your Apple team ID: Xcode > Settings > Accounts, or the "OU" of your "Apple Development" certificate.
+DEVELOPMENT_TEAM = ABCDE12345
+// Optional: a bundle ID of your own, if org.nxnative.remotePad is already registered by someone else's team.
+// PRODUCT_BUNDLE_IDENTIFIER = com.yourname.mandonx

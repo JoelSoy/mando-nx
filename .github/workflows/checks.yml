@@ -1,0 +1,32 @@
+name: checks
+on:
+  push:
+  pull_request:
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+      - name: flutter analyze and test
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+  host:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: nxnative at the pinned commit
+        run: |
+          git init -q nxnative
+          git -C nxnative fetch -q --depth 1 https://github.com/seedds/nxnative.git "$(cat host/NXNATIVE_COMMIT)"
+          git -C nxnative checkout -q FETCH_HEAD
+      - name: apply the patch
+        run: HOME="$RUNNER_TEMP" scripts/setup_nxnative.sh --dir "$PWD/nxnative"
+      - name: host tests (protocol, sessions, keyboard map, UDP on loopback)
+        run: make -C nxnative/dm/host/tests GAME=0100152000022000 remote
