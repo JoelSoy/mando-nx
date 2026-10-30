@@ -80,19 +80,24 @@ El teléfono vibra cuando el juego toma tu mando.
 
 ### La carrera (Mario Kart 8 Deluxe 4.0.1)
 
-En una carrera, debajo de la tarjeta aparece una línea con:
+En una carrera aparecen pequeños indicadores en los huecos entre los controles (sin tapar ninguno):
 
 - **la pista**, con su nombre en español (por ejemplo, "Parque Acuático" o "N64 Senda Arco Iris");
-- **tu posición** (por ejemplo, 3.º);
-- **la vuelta**;
-- **tus monedas**.
-
-Y debajo, otra con:
-
+- **tu posición** (por ejemplo, 3.º), bajo L, y **la vuelta**, bajo R;
+- **tus monedas**;
 - **tu personaje y tu kart**: carrocería, ruedas y ala, con los nombres que usa el juego en español (por ejemplo, "Rey Boo · Torbellino · Leaf · Superala");
 - **los objetos que llevas** (hasta dos, por ejemplo "Champiñón"). Mientras gira la ruleta, la casilla cuenta como vacía.
 
-En los menús las líneas desaparecen. Estos datos salen de la memoria del juego y solo funcionan con la versión 4.0.1 (la que verifica el Mac por su build ID): con otra versión o con otro juego, no aparecen. Límites:
+Con un Mac actualizado, también salen **las imágenes del juego** sobre el mismo mando:
+
+- la **foto de la pista** (la de la pantalla de copas) llena la pantalla del centro, atenuada para que se lea lo que va encima;
+- la **cara de tu personaje** va en la palanca del joystick y se mueve con ella;
+- el **objeto que tienes** aparece en el botón **L** (el que lo usa) en lugar de la letra; sin objeto vuelve a decir L;
+- la **moneda** del juego acompaña tus monedas.
+
+El Mac las saca de tu propia copia del juego mientras juegas y el teléfono las guarda mientras la app está abierta; este repositorio no guarda ninguna. Las pistas del Pase de pistas extras todavía salen sin foto.
+
+En los menús los indicadores desaparecen. Estos datos salen de la memoria del juego y solo funcionan con la versión 4.0.1 (la que verifica el Mac por su build ID): con otra versión o con otro juego, no aparecen. Límites:
 
 - Los objetos salen solo para el Jugador 1 cuando juega solo en el Mac. Con dos o más jugadores, el juego dibuja una casilla de objetos para cada uno y todavía no se sabe cuál es de quién.
 - Con varios jugadores en pantalla dividida, que el Jugador 2 vea su propia posición y su kart todavía no está probado.

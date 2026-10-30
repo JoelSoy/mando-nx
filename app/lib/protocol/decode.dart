@@ -1,11 +1,13 @@
 // A datagram from the host → a HostMessage, or null when it is not a valid message of this protocol version.
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'encode.dart';
 import 'host_messages.dart';
 
 final _sidRe = RegExp(r'^[0-9a-f]{16}$'), _hashRe = RegExp(r'^[0-9a-f]{8}$');
 final _courseRe = RegExp(r'^[A-Za-z0-9_]{0,24}$');
+final _imageKeyRe = RegExp(r'^[A-Za-z0-9_/]{1,32}$');
 
 HostMessage? decodeHostMessage(List<int> bytes) {
   if (bytes.isEmpty || bytes.length > maxPacket) return null;
@@ -95,11 +97,13 @@ HostMessage? _decode(_Fields f) {
         lap: known ? lap : null,
         coins: known ? coins : null,
         driver: kart ? drv : null,
+        color: kart ? f.int_('dcl', 0, 63) ?? 0 : 0,
         body: kart ? body : null,
         tires: kart ? tire : null,
         glider: kart ? wing : null,
         item: items ? itm : null,
         item2: items ? itm2 : null,
+        pictures: f.j['img'] == 1,
       );
     case 'kbd':
       final id = f.int_('ks', 0, 0xffffffff);
@@ -123,6 +127,25 @@ HostMessage? _decode(_Fields f) {
       }
       try {
         return IconPart(sid, h, off, base64Decode(d));
+      } on FormatException {
+        return null;
+      }
+    case 'imgpart':
+      final key = f.j['im'], size = f.int_('isz', 0, 1 << 20);
+      if (sid == null || key is! String || !_imageKeyRe.hasMatch(key)) {
+        return null;
+      }
+      if (size == 0) return ImagePart(sid, key, '', 0, 0, Uint8List(0));
+      final off = f.int_('off', 0, 1 << 20), d = f.j['d'], h = f.j['ih'];
+      if (size == null ||
+          off == null ||
+          d is! String ||
+          h is! String ||
+          !_hashRe.hasMatch(h)) {
+        return null;
+      }
+      try {
+        return ImagePart(sid, key, h, size, off, base64Decode(d));
       } on FormatException {
         return null;
       }

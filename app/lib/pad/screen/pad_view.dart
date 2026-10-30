@@ -6,7 +6,7 @@ mixin _PadView on _PadInput {
   Widget _tiltSwitch() => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      const Icon(Icons.screen_rotation_rounded, color: cyan, size: 18),
+      const Icon(Icons.screen_rotation_rounded, color: Colors.white, size: 18),
       const SizedBox(width: 6),
       Column(
         mainAxisSize: MainAxisSize.min,
@@ -14,7 +14,7 @@ mixin _PadView on _PadInput {
         children: [
           const Text(
             'Inclinación',
-            style: TextStyle(color: cyan, fontSize: 12),
+            style: TextStyle(color: Colors.white, fontSize: 12),
           ),
           Text(
             _steering && _gyroShown ? 'Giroscopio' : 'Acelerómetro',
@@ -42,6 +42,9 @@ mixin _PadView on _PadInput {
       body: LayoutBuilder(
         builder: (context, box) {
           final layout = _layoutFor(box.biggest, pad), r = _router!;
+          final (screen, face, item) = editing
+              ? (null, null, null)
+              : raceArt(client, client.race);
           final pm = layout.parts[PadPart.minus]!,
               pp = layout.parts[PadPart.plus]!;
           final statusTop =
@@ -62,9 +65,15 @@ mixin _PadView on _PadInput {
           );
           return Stack(
             children: [
-              const Positioned.fill(
-                child: GridBackdrop(child: SizedBox.expand()),
+              Positioned.fill(
+                child: prefs.style == VisualStyle.console
+                    ? const CustomPaint(painter: ConsoleShell())
+                    : backdropFor(prefs.style),
               ),
+              if (screen != null)
+                Positioned.fill(
+                  child: IgnorePointer(child: RaceScreen(picture: screen)),
+                ),
               Positioned.fill(
                 child: Listener(
                   behavior: HitTestBehavior.opaque,
@@ -81,13 +90,22 @@ mixin _PadView on _PadInput {
                       ? _edit((ed, l) => ed.up(e.pointer))
                       : _touch((r) => r.up(e.pointer)),
                   child: CustomPaint(
-                    painter: PadPainter(
+                    painter: paintPad(
+                      prefs.style,
                       layout,
                       r,
                       color,
                       editing: editing,
                       selected: _editor?.selected,
+                      hidden: {if (item != null) Control.l},
                       repaint: _touches,
+                    ),
+                    foregroundPainter: GameArtPainter(
+                      layout,
+                      r,
+                      face: face,
+                      item: item,
+                      repaint: Listenable.merge([_touches, artImages]),
                     ),
                   ),
                 ),
@@ -100,7 +118,7 @@ mixin _PadView on _PadInput {
                   onPressed: _leave,
                   icon: const Icon(Icons.close, size: 18),
                   label: const Text('Salir'),
-                  style: TextButton.styleFrom(foregroundColor: Colors.white60),
+                  style: TextButton.styleFrom(foregroundColor: Colors.white70),
                 ),
               ),
               part(
@@ -108,7 +126,7 @@ mixin _PadView on _PadInput {
                 IconButton(
                   key: const Key('settings'),
                   onPressed: () => showPadSettings(context, this),
-                  icon: const Icon(Icons.tune_rounded, color: cyan),
+                  icon: const Icon(Icons.tune_rounded, color: Colors.white),
                 ),
               ),
               if (!editing) ...[
@@ -139,18 +157,15 @@ mixin _PadView on _PadInput {
                   ),
                 ),
                 if (connected && client.info != null)
-                  center(
-                    statusTop + 22,
-                    400,
-                    IgnorePointer(
-                      child: Center(
-                        child: GameCard(
-                          info: client.info!,
-                          roster: client.roster,
-                          icon: client.icon,
-                          race: client.race,
-                        ),
-                      ),
+                  Positioned.fill(
+                    child: TelemetryBoard(
+                      layout: layout,
+                      top: statusTop + 22,
+                      info: client.info!,
+                      roster: client.roster,
+                      icon: client.icon,
+                      race: client.race,
+                      picture: client.picture,
                     ),
                   ),
               ] else

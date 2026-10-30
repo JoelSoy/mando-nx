@@ -1,5 +1,5 @@
-// Drawing the pad: the stick (its base where the finger landed, the knob under it), every button lit while pressed, and the parts' outlines while editing. It reads the
-// touch router when it paints and repaints when the touches change (repaint), so a finger moving does not rebuild the screen.
+// Tactile drawing only; every circle and rounded rectangle uses the router's exact hit geometry.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../gamer_theme.dart';
@@ -12,6 +12,7 @@ class PadPainter extends CustomPainter {
     this.accent, {
     this.editing = false,
     this.selected,
+    this.hidden = const {},
     super.repaint,
   });
   final PadLayout layout;
@@ -19,74 +20,132 @@ class PadPainter extends CustomPainter {
   final Color accent;
   final bool editing;
   final PadPart? selected;
-
+  final Set<Control>
+  hidden; // labels left out: a picture takes their place (game_art.dart)
   static const faceColors = {
-    Control.a: lime,
-    Control.b: Color(0xFFFF719A),
+    Control.a: coral,
+    Control.b: Colors.white,
     Control.x: cyan,
-    Control.y: Color(0xFFB7A1FF),
+    Control.y: Colors.white,
   };
-
   @override
   void paint(Canvas canvas, Size size) {
     final pressed = router.pressed,
-        knob = router.stickKnob,
         origin = router.stickOrigin,
-        active = router.stickActive;
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = cyan.withValues(alpha: .35);
-    // the stick: its base where the finger landed (or at home), the knob under the finger
+        knob = router.stickKnob;
+    final base = Rect.fromCircle(center: origin, radius: layout.stickRadius);
+    canvas.drawCircle(
+      origin.translate(0, 3),
+      layout.stickRadius,
+      Paint()..color = Colors.black.withValues(alpha: .35),
+    );
     canvas.drawCircle(
       origin,
       layout.stickRadius,
-      Paint()..color = Colors.white.withValues(alpha: active ? 0.10 : 0.05),
+      Paint()
+        ..shader = const RadialGradient(
+          colors: [Color(0xFF303641), Color(0xFF171B22)],
+        ).createShader(base),
     );
-    canvas.drawCircle(origin, layout.stickRadius, stroke);
+    canvas.drawCircle(
+      origin,
+      layout.stickRadius - 1,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = const Color(0xFF5B6673),
+    );
+    canvas.drawCircle(
+      origin,
+      layout.stickRadius * .78,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = Colors.white.withValues(alpha: .08),
+    );
+    final cap = Rect.fromCircle(center: knob, radius: layout.stickRadius * .43);
+    canvas.drawCircle(
+      knob.translate(0, 3),
+      cap.width / 2,
+      Paint()..color = Colors.black54,
+    );
     canvas.drawCircle(
       knob,
-      layout.stickRadius * 0.42,
+      cap.width / 2,
       Paint()
-        ..color = active
-            ? accent.withValues(alpha: 0.85)
-            : cyan.withValues(alpha: .25),
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: router.stickActive
+              ? [const Color(0xFF607582), const Color(0xFF293C48)]
+              : [const Color(0xFF505865), const Color(0xFF292F39)],
+        ).createShader(cap),
+    );
+    canvas.drawCircle(
+      knob,
+      cap.width * .34,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = Colors.white.withValues(alpha: .16),
     );
     for (final b in layout.buttons) {
       final on = pressed.contains(b.control);
-      final base = faceColors[b.control] ?? cyan;
-      final fill = Paint()
-        ..color = on
-            ? base.withValues(alpha: 0.85)
-            : base.withValues(
-                alpha: faceColors.containsKey(b.control) ? 0.28 : 0.10,
-              );
+      final shape = Path();
       if (b.round) {
-        canvas.drawCircle(b.center, b.rect.width / 2, fill);
-        canvas.drawCircle(b.center, b.rect.width / 2, stroke);
+        shape.addOval(b.rect);
       } else {
-        final rr = RRect.fromRectAndRadius(
-          b.rect,
-          Radius.circular(b.rect.shortestSide * 0.3),
+        shape.addRRect(
+          RRect.fromRectAndRadius(
+            b.rect,
+            Radius.circular(b.rect.shortestSide * .26),
+          ),
         );
-        canvas.drawRRect(rr, fill);
-        canvas.drawRRect(rr, stroke);
       }
-      final tp = TextPainter(
+      canvas.drawShadow(shape, Colors.black, on ? 1 : 3, true);
+      canvas.drawPath(
+        shape,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: on
+                ? [const Color(0xFF59636F), const Color(0xFF303A46)]
+                : [const Color(0xFF353C47), const Color(0xFF1C212A)],
+          ).createShader(b.rect),
+      );
+      canvas.drawPath(
+        shape,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = on ? 2 : 1.2
+          ..color = on
+              ? Colors.white.withValues(alpha: .8)
+              : Colors.white.withValues(alpha: .24),
+      );
+      if (hidden.contains(b.control)) continue;
+      final text = TextPainter(
         text: TextSpan(
           text: b.label,
           style: TextStyle(
-            color: on ? Colors.black : Colors.white,
-            fontSize: b.rect.shortestSide * 0.42,
-            fontWeight: FontWeight.bold,
+            color: Colors.white.withValues(alpha: on ? 1 : .92),
+            fontSize: b.rect.shortestSide * .40,
+            fontWeight: FontWeight.w800,
+            shadows: const [
+              Shadow(color: Colors.black54, offset: Offset(0, 1)),
+            ],
           ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, b.center - Offset(tp.width / 2, tp.height / 2));
+      text.paint(
+        canvas,
+        b.center -
+            Offset(text.width / 2, text.height / 2) +
+            (on ? const Offset(0, 1) : Offset.zero),
+      );
     }
     if (editing) {
-      // every part's outline; the selected one in lime with its name
       for (final e in layout.parts.entries) {
         final on = e.key == selected;
         canvas.drawRRect(
@@ -97,10 +156,10 @@ class PadPainter extends CustomPainter {
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = on ? 2.5 : 1
-            ..color = on ? lime : Colors.white.withValues(alpha: .35),
+            ..color = on ? lime : Colors.white.withValues(alpha: .45),
         );
         if (on) {
-          final tp = TextPainter(
+          final label = TextPainter(
             text: TextSpan(
               text: partNames[e.key],
               style: const TextStyle(
@@ -111,7 +170,7 @@ class PadPainter extends CustomPainter {
             ),
             textDirection: TextDirection.ltr,
           )..layout();
-          tp.paint(canvas, e.value.topLeft.translate(0, -tp.height - 6));
+          label.paint(canvas, e.value.topLeft.translate(0, -label.height - 6));
         }
       }
     }
@@ -123,5 +182,6 @@ class PadPainter extends CustomPainter {
       old.accent != accent ||
       old.editing != editing ||
       old.selected != selected ||
+      !setEquals(old.hidden, hidden) ||
       old.layout != layout;
 }

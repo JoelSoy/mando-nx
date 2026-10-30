@@ -16,9 +16,11 @@ import '../../pad_layout.dart';
 import '../../protocol.dart';
 import '../../storage.dart';
 import 'edit_panel.dart';
-import 'game_card.dart';
+import 'game_art.dart';
 import 'keyboard_prompt.dart';
-import 'painter.dart';
+import 'pad_skin.dart';
+import 'console_shell.dart';
+import 'telemetry_board.dart';
 import 'settings_sheet.dart';
 import 'status.dart';
 import 'toast.dart';
@@ -85,7 +87,10 @@ abstract class _PadBase extends State<PadScreen> implements PadSettingsHost {
   @override
   bool get gyroActive => _motion.gyroActive;
   @override
-  void saved() => widget.onPrefsChanged?.call();
+  void saved() {
+    widget.onPrefsChanged?.call();
+    if (mounted) setState(() {});
+  }
 
   void _say(String text) {
     _toastTimer?.cancel();
@@ -180,5 +185,8 @@ class _PadScreenState extends _PadBase
   }
 
   @override
-  Widget build(BuildContext context) => _build(context);
+  Widget build(BuildContext context) => Theme(
+    data: themeFor(prefs.style),
+    child: Builder(builder: _build),
+  );
 }

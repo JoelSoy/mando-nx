@@ -7,6 +7,7 @@ import '../protocol.dart';
 import '../storage.dart';
 import '../demo.dart';
 import 'connect_form.dart';
+import '../gamer_theme.dart';
 
 typedef TransportOpener = Future<Transport> Function(
   String host,
@@ -86,10 +87,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
             client: preview!,
             haptics: widget.haptics,
             prefs: _s.pad,
-            onPrefsChanged: () => widget.store.save(_s),
+            onPrefsChanged: () {
+              widget.store.save(_s);
+              if (mounted) setState(() {});
+            },
           ),
         ),
       );
+      if (mounted) setState(() {});
       return;
     }
     _s
@@ -133,23 +138,34 @@ class _ConnectScreenState extends State<ConnectScreen> {
           client: client!,
           haptics: widget.haptics,
           prefs: _s.pad,
-          onPrefsChanged: () => widget.store.save(_s),
+          onPrefsChanged: () {
+            widget.store.save(_s);
+            if (mounted) setState(() {});
+          },
         ),
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) => ConnectForm(
-    formKey: _form,
-    host: _host,
-    port: _port,
-    code: _code,
-    name: _name,
-    busy: _busy,
-    error: _error,
-    onConnect: () => _connect(),
-    onDemo: () => _connect(demo: true),
-    onScanned: setState,
+  Widget build(BuildContext context) => Theme(
+    data: themeFor(_s.pad.style),
+    child: ConnectForm(
+      style: _s.pad.style,
+      onStyle: (style) => setState(() {
+        _s.pad.style = style;
+        widget.store.save(_s);
+      }),
+      formKey: _form,
+      host: _host,
+      port: _port,
+      code: _code,
+      name: _name,
+      busy: _busy,
+      error: _error,
+      onConnect: () => _connect(),
+      onDemo: () => _connect(demo: true),
+      onScanned: setState,
+    ),
   );
 }

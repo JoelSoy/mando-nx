@@ -11,7 +11,7 @@ index ca6b541..735b603 100644
  - **Saves and logs** are in the Files app, under the app's name: `save/` and `log.txt`. When something goes wrong, send `log.txt` (the previous run is `log.prev.txt`).
  - **Short stutters** the first time a new scene appears are normal: the app compiles graphics for it once and remembers them for the next launch. What it remembered, and what the game's list names, is built before the game starts, behind "Preparing shaders" and a progress bar when that takes more than half a second.
 diff --git a/dm/games/0100152000022000/README.md b/dm/games/0100152000022000/README.md
-index a72f7ee..a2bd955 100644
+index a72f7ee..46beaf7 100644
 --- a/dm/games/0100152000022000/README.md
 +++ b/dm/games/0100152000022000/README.md
 @@ -57,6 +57,8 @@ The game builds Mii heads from the console's MiiModel system data, starting at b
@@ -19,12 +19,12 @@ index a72f7ee..a2bd955 100644
  - `run/race.sh` boots from a copy of a save past the Mii pick into a 50cc Grand Prix (Mario, Mushroom Cup) with frame-timed keys and holds accelerate: `DM_KEYS=f960:L+R~0.3,f1260:A,f1500:A,f1740:A,f2000:A,f2240:A,f2400:A,f2560:A,f2800:A,f3040:A,f4300:A~70`.
  - From a fresh save, L+R at the title opens "Select a Mii" (Right, A takes the first default Mii).
 +- A `DM_CTL` run with a window pauses the game whenever the window is not key (focus state 2: presses are ignored); drive it headless (`DM_WINDOW` unset), where `shot` still works. In the kart screen, L and R toggle smart steering and auto-accelerate, so a held race drives itself.
-+- Race data (4.0.1, `remote_race.c`): a race opens `Course/<name>/` (`Gu_Menu` behind the menus). One object of class main+0x125ada8 holds a `sead::PtrArray` of the racers at +0x60 / +0x68, player 1 first; a racer (class main+0x12cac28) has its index at +0x38, its 0-based place at +0x40, 0-based lap at +0x44 and coins at +0x50. Found with `DM_CTL scan` (`hle_scan.c`: `scan i32 1 10`, `scan rec` with a `shot` after each, `scan match` against the shots; `scan ptr64` for the owners) in two races of a 50cc cup; the objects lived across the cup's races. A kart model (class main+0x125a288, one per racer, made in racer order in each kart's own heap; it names `Driver/<name>.bfres`, `Kart/Body/…`, `Kart/Tire/…`, `Kart/Wing/…`) has the character at +0x8 (its colour at +0xc), body +0x14, glider +0x18, tires +0x20; the ids follow the menus' part lists (`Mario` … `Pauline`, `K_Std` …, `T_Std` …, `G_Std` …, built on the heap as name and label tables), and `Driver/DrvChr0N` is character 43 + N (Birdo 44 … Pauline 51). The item box (class main+0x127e110, one object while one player races) has its two slots' states at +0x200 (3 holding, 2 roulette, 0 empty) and items at +0x210; item ids are the index of the u8 table at main+0xf21e7c (id → frame of the box's `ItemPtn` icon animation in `UI/cmn/race.sarc` `rc_L_ItemBox_00`: 0 banana, 1 green shell, 2 red shell, 3 mushroom, 15 coin checked on screen). The racers' own item slots were not found (not plain int32). `DM_CTL scan seq i32 <max stride> <ids…>` found the per-racer arrays from the line-up the results screen shows.
++- Race data (4.0.1, `remote_race.c`): a race opens `Course/<name>/` (`Gu_Menu` behind the menus). One object of class main+0x125ada8 holds a `sead::PtrArray` of the racers at +0x60 / +0x68, player 1 first; a racer (class main+0x12cac28) has its index at +0x38, its 0-based place at +0x40, 0-based lap at +0x44 and coins at +0x50. Found with `DM_CTL scan` (`hle_scan.c`: `scan i32 1 10`, `scan rec` with a `shot` after each, `scan match` against the shots; `scan ptr64` for the owners) in two races of a 50cc cup; the objects lived across the cup's races. A kart model (class main+0x125a288, one per racer, made in racer order in each kart's own heap; it names `Driver/<name>.bfres`, `Kart/Body/…`, `Kart/Tire/…`, `Kart/Wing/…`) has the character at +0x8 (its colour at +0xc), body +0x14, glider +0x18, tires +0x20; the ids follow the menus' part lists (`Mario` … `Pauline`, `K_Std` …, `T_Std` …, `G_Std` …, built on the heap as name and label tables), and `Driver/DrvChr0N` is character 43 + N (Birdo 44 … Pauline 51). The item box (class main+0x127e110, one object while one player races) has its two slots' states at +0x200 (3 holding, 2 roulette, 0 empty) and items at +0x210; item ids are the index of the u8 table at main+0xf21e7c (id → frame of the box's `ItemPtn` icon animation in `UI/cmn/race.sarc` `rc_L_ItemBox_00`: 0 banana, 1 green shell, 2 red shell, 3 mushroom, 15 coin checked on screen). The racers' own item slots were not found (not plain int32). `DM_CTL scan seq i32 <max stride> <ids…>` found the per-racer arrays from the line-up the results screen shows. Pictures for the phones (`remote_images.c`): the cup screen's course pictures are `UI/cmn/menu/ym_CoursePict_<course>_00^u.bntx` (BC7, 304 × 256, the picture at 8, 29, 288 × 162); the character icons are in `UI/cmn/menu.sarc` → `mn_L_CharaIcon_00.szs` (RGBA8 128 × 128, `tc_Chara_<name>^l`, or `tc_Chara_<name>NN^l` by colour for Yoshi, Shy Guy, Birdo and the Inklings); the item icons in `UI/cmn/race.sarc` → `rc_L_ItemBox_00.szs` (RGBA8 192 × 192, `tc_Item_<name>^l`). Booster Course Pass courses keep their pictures in the DLC's RomFS, which the pictures do not read yet.
  
  ## Found on this game
  
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 410b6ce..a489764 100644
+index 410b6ce..fc376cb 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -16,7 +16,7 @@ endif
@@ -32,7 +32,7 @@ index 410b6ce..a489764 100644
  CFLAGS=-O1 -g -Wall -Wno-unused-function
  # Service-layer takeover hle_*.c files are included by wildcard: adding a file does not touch this line (avoids merge conflicts)
 -SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
-+SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controls_mac.m remote_mac.c remote_front.c remote_icon.c remote_race.c entry.S
++SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controls_mac.m remote_mac.c remote_front.c remote_icon.c remote_race.c remote_images.c remote_img.c remote_img_mac.m entry.S
  # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)
  # Sources under dm/gfx, dm/gfx/nvn, dm/gfx/tex, dm/gfx/vk and dm/gfx/gl are included by wildcard (tests/ and metal/ do not go into the host): adding a file does not touch this line
  GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S ../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))
@@ -999,17 +999,17 @@ index fa7058e..3dd6aa6 100644
      return p;
 diff --git a/dm/host/remote_feed.h b/dm/host/remote_feed.h
 new file mode 100644
-index 0000000..6b8f666
+index 0000000..1447b4d
 --- /dev/null
 +++ b/dm/host/remote_feed.h
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,136 @@
 +// Wi-Fi controllers (remote_proto.h): what goes to each streaming phone about the game, besides acks and rumble. Each is sent when it changes and renewed now and
 +// then, with a sequence number the phone orders them by (a lost one is replaced by the next):
 +//   info     the game's name and icon (size and CRC), what the game makes of the phone's player (rp_game), whether the game is reading it      every RP_INFO_MS
 +//   roster   who holds each player: "keyboard", a controller's name, a phone's own name                                                        every RP_ROSTER_MS
 +//   kbd      the game's keyboard is waiting for text (title, initial text, length), and "done" when one phone answered or the box closed     every RP_KBD_MS
 +//   race     the course the player races on, their place, lap, coins, character and kart, items (rp_race; at most every RP_RACE_GAP_MS)  every RP_RACE_MS
-+// and, on request: iconpart, a piece of the icon (rp_icon_part), and the answer to the keyboard (rp_text_in).
++// and, on request: iconpart, a piece of the icon (rp_icon_part), imgpart, a piece of a picture (rp_img_part), and the answer to the keyboard (rp_text_in).
 +#pragma once
 +#include "remote_session.h"
 +
@@ -1057,10 +1057,22 @@ index 0000000..6b8f666
 +    char crs[RP_COURSE + 1]; rp_text_clean(crs, sizeof crs, r->course, RP_COURSE, "");
 +    size_t n = rp_out(out, cap, "{\"v\":1,\"t\":\"race\",\"sid\":\"%s\",\"cs\":%u,\"crs\":\"%s\"", x->sid, x->c_seq, crs), k;
 +    if (n && r->has) n = (k = rp_out(out + n, cap - n, ",\"pos\":%d,\"lap\":%d,\"coin\":%d", r->place, r->lap, r->coins)) ? n + k : 0;
-+    if (n && r->kart) n = (k = rp_out(out + n, cap - n, ",\"drv\":%d,\"body\":%d,\"tire\":%d,\"wing\":%d", r->drv, r->body, r->tire, r->wing)) ? n + k : 0;
++    if (n && r->kart) n = (k = rp_out(out + n, cap - n, ",\"drv\":%d,\"dcl\":%d,\"body\":%d,\"tire\":%d,\"wing\":%d", r->drv, r->dcl, r->body, r->tire, r->wing)) ? n + k : 0;
 +    if (n && r->items) n = (k = rp_out(out + n, cap - n, ",\"itm\":%d,\"itm2\":%d", r->item, r->item2)) ? n + k : 0;
++    if (n && r->img) n = (k = rp_out(out + n, cap - n, ",\"img\":1")) ? n + k : 0;
 +    k = n ? rp_out(out + n, cap - n, "}") : 0;
 +    return k ? n + k : 0;
++}
++// A piece of picture key at off (rp_hooks.image): its CRC and size go with each piece; a picture the host cannot make says so with size 0; one still being made, nothing
++static size_t rp_img_part(const rp_server *s, const rp_session *x, const char *key, uint32_t off, char *out, size_t cap) {
++    rp_icon p = {0}; int r = s->h.image ? s->h.image(s->h.ctx, key, &p) : -1;
++    if (r < 0 || (r > 0 && !p.n)) return rp_out(out, cap, "{\"v\":1,\"t\":\"imgpart\",\"sid\":\"%s\",\"im\":\"%s\",\"isz\":0}", x->sid, key);
++    if (!r || off >= p.n) return 0;
++    size_t k = p.n - off < RP_IMG_CHUNK ? p.n - off : RP_IMG_CHUNK;
++    char b64[(RP_IMG_CHUNK + 2) / 3 * 4 + 1];
++    if (!rp_base64(p.data + off, k, b64, sizeof b64)) return 0;
++    return rp_out(out, cap, "{\"v\":1,\"t\":\"imgpart\",\"sid\":\"%s\",\"im\":\"%s\",\"ih\":\"%08x\",\"isz\":%zu,\"off\":%u,\"d\":\"%s\"}", x->sid, key, p.crc,
++                  p.n, off, b64);
 +}
 +static size_t rp_kbd_msg(const rp_server *s, const rp_session *x, int done, char *out, size_t cap) {
 +    if (done) return rp_out(out, cap, "{\"v\":1,\"t\":\"kbd\",\"sid\":\"%s\",\"ks\":%u,\"done\":1}", x->sid, x->k_sent);
@@ -1129,10 +1141,10 @@ index 0000000..6b8f666
 +}
 diff --git a/dm/host/remote_front.c b/dm/host/remote_front.c
 new file mode 100644
-index 0000000..61210d5
+index 0000000..5d8fc1a
 --- /dev/null
 +++ b/dm/host/remote_front.c
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,88 @@
 +// Wi-Fi controllers on the Mac (remote_mac.c): the hooks the sessions (remote_proto.h) reach the front end's player slots, hid and haptics through, and the bridge from
 +// the game's keyboard (front_text_input) to the phones. The hooks run on the receiver's thread with rm_srv_mu held.
 +#include "dm.h"
@@ -1196,12 +1208,15 @@ index 0000000..61210d5
 +    if (u) rm_race_read(u == 2 ? 0 : p, r);
 +}
 +
++static int h_image(void *ctx, const char *key, rp_icon *out) { (void)ctx; return rm_image(key, out); }   // remote_images.c
++
 +static void (*g_text_answer)(const char *text, int ok);
 +static void h_text(void *ctx, const char *text, int ok) { (void)ctx; if (g_text_answer) g_text_answer(text, ok); }
 +
 +void rm_hooks(rp_hooks *h) {
 +    *h = (rp_hooks){.take = h_take, .drop = h_drop, .set = h_set, .input_on = h_input_on, .say = h_say, .changed = h_changed, .random = h_random,
-+                    .rumble_route = h_route, .game = h_game, .names = h_names, .text = h_text, .race = h_race};
++                    .rumble_route = h_route, .game = h_game, .names = h_names, .text = h_text, .race = h_race,
++                    .image = h_image};
 +}
 +
 +void dm_remote_text_begin(const char *title, const char *initial, int max_chars, void (*answer)(const char *text, int ok)) {
@@ -1272,6 +1287,335 @@ index 0000000..b4b1f0a
 +    if (src) CFRelease(src);
 +    if (url) CFRelease(url);
 +    return len;
++}
+diff --git a/dm/host/remote_images.c b/dm/host/remote_images.c
+new file mode 100644
+index 0000000..e09d009
+--- /dev/null
++++ b/dm/host/remote_images.c
+@@ -0,0 +1,100 @@
++// The phones' pictures (rp_hooks.image, remote_front.c): a key names one, made on its first request by a worker thread from the game's own files (remote_img.c) and kept
++// while the host runs. Keys: "crs/<course folder>" (the course's picture, as the menus show it, at its own 288 × 162; JPEG), "drv/<character>/<colour>" and "itm/<item>" (the menus' character
++// icon and the item box's icon, by the ids of the race message; PNG). Where they are is per game build (k_pics, gated by main's build ID like remote_race.c's rows).
++#include "dm.h"
++#include "remote_mac_int.h"
++#include <stdio.h>
++#include <unistd.h>
++
++typedef struct {
++    const char *build;
++    const char *course, *course_tex; int crop[4];   // the course picture: a BNTX file and its texture (%s: the course folder), the part that is picture
++    const char *chara_arc, *chara_in, *chara, *chara_n;   // character icons: the SARC, its member, the texture (%s: name, %s%02d: name and colour)
++    const char *item_arc, *item_in, *item;                  // item icons: the same (%s: name)
++    const char *drivers, *items;                            // the names by id, separated by spaces
++} pic_row;
++static const pic_row k_pics[] = {
++    // Mario Kart 8 Deluxe 4.0.1 (mando-nx docs/ingenieria_inversa.md): the cup screen's course pictures (BC7, 304 × 256 with the picture at 8, 29), the character
++    // select's icons (RGBA8 128 × 128; Yoshi, Shy Guy, Birdo and the Inklings by colour), the item box's icons (RGBA8 192 × 192, the coin among them)
++    {"2452c49bc26ec15904c507a34b6f16ae", "UI/cmn/menu/ym_CoursePict_%s_00^u.bntx", "ym_CoursePict_%s_00^u", {8, 29, 288, 162},
++     "UI/cmn/menu.sarc", "mn_L_CharaIcon_00.szs", "tc_Chara_%s^l", "tc_Chara_%s%02d^l", "UI/cmn/race.sarc", "rc_L_ItemBox_00.szs", "tc_Item_%s^l",
++     "Mario Luigi Peach Daisy Yoshi Kinopio Kinopico Nokonoko Koopa DK Wario Waluigi Rosetta MetalMario PGoldPeach Jugemu Heyho BbMario BbLuigi BbPeach BbDaisy "
++     "BbRosetta Larry Lemmy Wendy Ludwig Iggy Roy Morton Mii TanukiMario Link AnimalBoyA Shizue CatPeach HoneKoopa AnimalGirlA GoldMario Karon KoopaJr KingTeresa "
++     "SplatoonGirl SplatoonBoy LinkBotw Catherine Kameck BossPakkun Hanachan DiddyKong FK Kinopeach Pauline Mii",
++     "Banana Koura RedKoura Mush Bomb Gesso Togezo Mush3 Star Killer Thunder PKinoko Flower PackunFlower Boomerang Coin SuperHorn Banana3 Koura3 RedKoura3 SP8 "
++     "Feather Teresa"},
++};
++static const pic_row *g_row;
++
++enum { PICS = 96 };
++typedef struct { char key[RP_IMG_KEY + 1]; int state; unsigned char *data; size_t n; uint32_t crc; } pic;   // state: 0 asked, 1 made, -1 none
++static pic g_pic[PICS];
++static int g_npic, g_worker;
++static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t g_cv = PTHREAD_COND_INITIALIZER;
++
++static int word(const char *list, int i, char *out, size_t cap) {   // the i-th name of a space-separated list
++    for (const char *p = list; i >= 0 && *p; i--) {
++        size_t len = strcspn(p, " ");
++        if (!i) return len < cap ? (memcpy(out, p, len), out[len] = 0, 1) : 0;
++        p += len; p += *p == ' ';
++    }
++    return 0;
++}
++static uint32_t crc32(const unsigned char *p, size_t n) {   // the zlib / PNG CRC-32, as rp_crc32
++    uint32_t c = 0xffffffffu;
++    for (size_t i = 0; i < n; i++) { c ^= p[i]; for (int k = 0; k < 8; k++) c = c >> 1 ^ (0xedb88320u & (0u - (c & 1))); }
++    return ~c;
++}
++
++// One picture: its RGBA8 from the game's files, then encoded
++static size_t make(const char *key, unsigned char **out) {
++    char name[32], tex[96], path[128]; int id = -1, col = 0, w = 0, h = 0, px = 96, jpeg = 0, none[4] = {0}; const int *crop = none;
++    uint8_t *rgba = NULL;
++    if (sscanf(key, "crs/%24[A-Za-z0-9_]", name) == 1 && strlen(key) == 4 + strlen(name)) {
++        snprintf(path, sizeof path, g_row->course, name); snprintf(tex, sizeof tex, g_row->course_tex, name);
++        rgba = rm_img_rgba(path, NULL, tex, &w, &h); crop = g_row->crop; px = 288; jpeg = 1;
++    } else if (sscanf(key, "drv/%d/%d", &id, &col) == 2 && col >= 0 && col < 100 && word(g_row->drivers, id, name, sizeof name)) {
++        snprintf(tex, sizeof tex, g_row->chara, name); rgba = rm_img_rgba(g_row->chara_arc, g_row->chara_in, tex, &w, &h);
++        if (!rgba) { snprintf(tex, sizeof tex, g_row->chara_n, name, col); rgba = rm_img_rgba(g_row->chara_arc, g_row->chara_in, tex, &w, &h); }
++    } else if (sscanf(key, "itm/%d", &id) == 1 && word(g_row->items, id, name, sizeof name)) {
++        snprintf(tex, sizeof tex, g_row->item, name); rgba = rm_img_rgba(g_row->item_arc, g_row->item_in, tex, &w, &h);
++    }
++    size_t n = rgba ? rm_img_encode(rgba, w, h, crop, px, jpeg, out) : 0;
++    free(rgba);
++    return n;
++}
++static void *worker(void *arg) {
++    (void)arg;
++    pthread_mutex_lock(&g_mu);
++    for (;;) {
++        int i = 0; while (i < g_npic && g_pic[i].state) i++;
++        if (i == g_npic) { pthread_cond_wait(&g_cv, &g_mu); continue; }
++        char key[RP_IMG_KEY + 1]; memcpy(key, g_pic[i].key, sizeof key);
++        pthread_mutex_unlock(&g_mu);
++        unsigned char *data = NULL; size_t n = make(key, &data);
++        LOG("Wi-Fi controllers: picture %s %s", key, n ? "made" : "not in the game's files");
++        pthread_mutex_lock(&g_mu);
++        g_pic[i].data = data; g_pic[i].n = n; g_pic[i].crc = n ? crc32(data, n) : 0; g_pic[i].state = n ? 1 : -1;
++    }
++    return NULL;
++}
++
++void rm_images_start(void) {
++    const char *b = dm_main_build();
++    for (size_t i = 0; i < sizeof k_pics / sizeof k_pics[0]; i++) if (!strcasecmp(b, k_pics[i].build)) g_row = &k_pics[i];
++    if (g_row) LOG("Wi-Fi controllers: this build's course, character and item pictures go to the phones (made from the game's files when asked)");
++}
++int rm_images_on(void) { return g_row != NULL; }
++// The picture key names: 1 and *out when made, 0 while it is being made (asked now if new), -1 none (no such picture, or too many asked)
++int rm_image(const char *key, rp_icon *out) {
++    if (!g_row) return -1;
++    pthread_mutex_lock(&g_mu);
++    int i = 0, r; while (i < g_npic && strcmp(g_pic[i].key, key)) i++;
++    if (i == g_npic && g_npic < PICS) { snprintf(g_pic[i].key, sizeof g_pic[i].key, "%s", key); g_pic[i].state = 0; g_npic++; pthread_cond_signal(&g_cv); }
++    if (!g_worker) { pthread_t th; g_worker = !pthread_create(&th, NULL, worker, NULL); if (g_worker) pthread_detach(th); }
++    if (i == g_npic) r = -1;
++    else if ((r = g_pic[i].state) > 0) *out = (rp_icon){g_pic[i].data, g_pic[i].n, g_pic[i].crc};
++    pthread_mutex_unlock(&g_mu);
++    return r;
++}
+diff --git a/dm/host/remote_img.c b/dm/host/remote_img.c
+new file mode 100644
+index 0000000..bb5613a
+--- /dev/null
++++ b/dm/host/remote_img.c
+@@ -0,0 +1,136 @@
++// Pictures from the game's own files for the phones (remote_images.c): a texture of a BNTX in the RomFS (DM_ROMFS, the packed image or a folder), the BNTX alone or the
++// one inside a member of a SARC (either may be Yaz0-compressed), as RGBA8 rows. Formats: RGBA8 (0x0b01, 0x0b06) and BC7 (0x2001, 0x2006, which the GPU decodes:
++// remote_img_mac.m), block-linear as BNTX keeps them (Tegra GOBs of 64 bytes × 8 rows, 2^n GOBs to a block). Nothing of the game is kept: each picture is made from
++// the player's own copy while the game runs.
++#include "remote_mac_int.h"
++#include "romfs_image.h"
++#include <stdio.h>
++
++static uint32_t le16(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8; }
++static uint32_t le32(const uint8_t *p) { return le16(p) | le16(p + 2) << 16; }
++static uint64_t le64(const uint8_t *p) { return le32(p) | (uint64_t)le32(p + 4) << 32; }
++
++// A whole file of the RomFS: from the packed image (its index kept open after the first read) or from the folder
++static romfs_img *g_rom;
++static uint8_t *rom_read(const char *path, size_t *n) {
++    const char *root = getenv("DM_ROMFS"); struct stat st; uint8_t *b = NULL; *n = 0;
++    if (!root || !*root || stat(root, &st)) return NULL;
++    if (S_ISDIR(st.st_mode)) {
++        char full[1024]; FILE *f = snprintf(full, sizeof full, "%s/%s", root, path) < (int)sizeof full ? fopen(full, "rb") : NULL;
++        long len = f && !fseek(f, 0, SEEK_END) ? ftell(f) : -1;
++        if (len > 0 && !fseek(f, 0, SEEK_SET) && (b = malloc((size_t)len)) && fread(b, 1, (size_t)len, f) == (size_t)len) *n = (size_t)len;
++        else { free(b); b = NULL; }
++        if (f) fclose(f);
++        return b;
++    }
++    if (!g_rom && !(g_rom = romfs_image_open(root))) return NULL;
++    uint64_t k = 0;   // each component: a binary search of the directory's children, which the packer sorted by name
++    for (const char *p = path; *p;) {
++        const char *e = strchr(p, '/'); size_t len = e ? (size_t)(e - p) : strlen(p); int found = 0;
++        if (g_rom->e[k].type) return NULL;
++        for (uint64_t lo = g_rom->e[k].a, hi = lo + g_rom->e[k].b; lo < hi && !found;) {
++            uint64_t mid = lo + (hi - lo) / 2; const img_ent *x = &g_rom->e[mid];
++            int c = memcmp(g_rom->names + x->name, p, x->nlen < len ? x->nlen : len);
++            if (!c) c = (x->nlen > len) - (x->nlen < len);
++            if (!c) { k = mid; found = 1; } else if (c < 0) lo = mid + 1; else hi = mid;
++        }
++        if (!found) return NULL;
++        p += len; if (*p) p++;
++    }
++    const img_ent *x = &g_rom->e[k];
++    if (!x->type || !x->b || x->b > (64u << 20) || !(b = malloc((size_t)x->b))) return NULL;
++    if (!romfs_image_read(g_rom->fd, b, (size_t)x->b, (off_t)x->a)) { free(b); return NULL; }
++    *n = (size_t)x->b; return b;
++}
++
++// Yaz0 → its data, or b itself when it is not Yaz0 (*own: whether the result is a new buffer)
++static const uint8_t *yaz0(const uint8_t *b, size_t n, size_t *out_n, int *own) {
++    *own = 0; *out_n = n;
++    if (n < 16 || memcmp(b, "Yaz0", 4)) return b;
++    size_t total = (size_t)b[4] << 24 | (size_t)b[5] << 16 | (size_t)b[6] << 8 | b[7], o = 0, p = 16;
++    uint8_t *out = total && total <= (64u << 20) ? malloc(total) : NULL;
++    if (!out) return NULL;
++    while (o < total && p < n) {
++        uint8_t code = b[p++];
++        for (int bit = 7; bit >= 0 && o < total; bit--) {
++            if (code >> bit & 1) { if (p >= n) goto bad; out[o++] = b[p++]; continue; }
++            if (p + 1 >= n) goto bad;
++            size_t dist = ((size_t)(b[p] & 15) << 8 | b[p + 1]) + 1, cnt = b[p] >> 4; p += 2;
++            if (!cnt) { if (p >= n) goto bad; cnt = (size_t)b[p++] + 0x12; } else cnt += 2;
++            if (dist > o) goto bad;
++            for (; cnt && o < total; cnt--, o++) out[o] = out[o - dist];
++        }
++    }
++    if (o != total) goto bad;
++    *out_n = total; *own = 1; return out;
++bad:
++    free(out); return NULL;
++}
++
++// A member of a SARC: by name, or (name NULL) the first that is a BNTX; *len its size
++static const uint8_t *sarc_find(const uint8_t *b, size_t n, const char *name, size_t *len) {
++    if (n < 0x20 || memcmp(b, "SARC", 4)) return NULL;
++    size_t hl = le16(b + 4), data = le32(b + 0xc);
++    if (hl + 12 > n || memcmp(b + hl, "SFAT", 4)) return NULL;
++    size_t cnt = le16(b + hl + 6), nodes = hl + 12, names = nodes + 16 * cnt + 8;
++    if (names > n) return NULL;
++    for (size_t i = 0; i < cnt; i++) {
++        const uint8_t *e = b + nodes + 16 * i; uint32_t attr = le32(e + 4); size_t s = le32(e + 8), t = le32(e + 12);
++        if (s > t || data + t > n) continue;
++        if (name) {
++            size_t at = names + (size_t)(attr & 0xffff) * 4, nl = strlen(name);
++            if (!(attr >> 24) || at + nl + 1 > n || memcmp(b + at, name, nl + 1)) continue;
++        } else if (t - s < 4 || memcmp(b + data + s, "BNTX", 4)) continue;
++        *len = t - s; return b + data + s;
++    }
++    return NULL;
++}
++
++// Block-linear → linear: row bytes a row (a multiple of 16), rows rows, 2^bh GOBs to a block; 0 when src is too short
++static int deswizzle(const uint8_t *src, size_t n, uint8_t *dst, uint32_t row, uint32_t rows, unsigned bh) {
++    uint32_t gh = 1u << bh, gw = (row + 63) / 64;
++    if ((size_t)gw * ((rows + 8 * gh - 1) / (8 * gh)) * 512 * gh > n) return 0;
++    for (uint32_t y = 0; y < rows; y++)
++        for (uint32_t x = 0; x < row; x += 16) {
++            size_t o = ((size_t)(y / (8 * gh)) * gw + x / 64) * 512 * gh + (y % (8 * gh)) / 8 * 512 + (x % 64) / 32 * 256 + (y % 8) / 2 * 64 + (x % 32) / 16 * 32 + (y % 2) * 16;
++            memcpy(dst + (size_t)y * row + x, src + o, row - x < 16 ? row - x : 16);
++        }
++    return 1;
++}
++
++// Texture tex of a BNTX → RGBA8 rows
++static uint8_t *bntx_rgba(const uint8_t *b, size_t n, const char *tex, int *w, int *h) {
++    if (n < 0x40 || memcmp(b, "BNTX", 4) || memcmp(b + 0x20, "NX  ", 4)) return NULL;
++    size_t cnt = le32(b + 0x24), arr = le64(b + 0x28), tl = strlen(tex);
++    for (size_t i = 0; i < cnt && arr + 8 * (i + 1) <= n; i++) {
++        size_t t = le64(b + arr + 8 * i);
++        if (t + 0x78 > n || memcmp(b + t, "BRTI", 4)) continue;
++        size_t name = le64(b + t + 0x60), ptrs = le64(b + t + 0x70);
++        if (name + 2 + tl > n || le16(b + name) != tl || memcmp(b + name + 2, tex, tl) || ptrs + 8 > n) continue;
++        uint32_t fmt = le32(b + t + 0x1c), tw = le32(b + t + 0x24), th = le32(b + t + 0x28), bh = le32(b + t + 0x34) & 7;
++        size_t data = le64(b + ptrs), px = (size_t)tw * th * 4;
++        int bc7 = fmt == 0x2001 || fmt == 0x2006;
++        if ((fmt != 0x0b01 && fmt != 0x0b06 && !bc7) || le16(b + t + 0x12) || !tw || !th || tw > 4096 || th > 4096 || (bc7 && (tw | th) & 3) || data > n) return NULL;
++        uint32_t row = bc7 ? tw / 4 * 16 : tw * 4, rows = bc7 ? th / 4 : th;
++        uint8_t *lin = malloc((size_t)row * rows), *out = bc7 ? malloc(px) : lin;
++        if (!lin || !out || !deswizzle(b + data, n - data, lin, row, rows, bh) || (bc7 && !rm_bc7_rgba(lin, (int)tw, (int)th, out))) {
++            free(lin); if (out != lin) free(out); return NULL;
++        }
++        if (bc7) free(lin);
++        *w = (int)tw; *h = (int)th; return out;
++    }
++    return NULL;
++}
++
++uint8_t *rm_img_rgba(const char *path, const char *arc, const char *tex, int *w, int *h) {
++    size_t n = 0, an = 0, mn = 0, bn = 0; int own_a = 0, own_m = 0;
++    uint8_t *file = rom_read(path, &n), *out = NULL;
++    const uint8_t *top = file ? yaz0(file, n, &an, &own_a) : NULL, *m = top, *bntx;
++    if (top && arc) { const uint8_t *raw = sarc_find(top, an, arc, &mn); m = raw ? yaz0(raw, mn, &mn, &own_m) : NULL; } else mn = an;
++    if (m && !memcmp(m, "SARC", 4)) bntx = sarc_find(m, mn, NULL, &bn); else { bntx = m; bn = mn; }
++    if (bntx) out = bntx_rgba(bntx, bn, tex, w, h);
++    if (own_m) free((void *)m);
++    if (own_a) free((void *)top);
++    free(file);
++    return out;
++}
+diff --git a/dm/host/remote_img_mac.m b/dm/host/remote_img_mac.m
+new file mode 100644
+index 0000000..756dba1
+--- /dev/null
++++ b/dm/host/remote_img_mac.m
+@@ -0,0 +1,75 @@
++// The phones' pictures on the Mac (remote_img.c, remote_images.c): BC7 blocks decoded by the GPU (a compute pass samples the compressed texture into an RGBA8 one),
++// and RGBA8 rows cropped, scaled and written as PNG (keeping alpha) or JPEG with ImageIO. Called from the pictures' worker thread only.
++#import <Metal/Metal.h>
++#import <ImageIO/ImageIO.h>
++#include "dm.h"
++#include "remote_mac_int.h"
++
++static id<MTLDevice> g_dev;
++static id<MTLCommandQueue> g_queue;
++static id<MTLComputePipelineState> g_copy;
++
++// BC7 blocks, a row of blocks after the other (w / 4 blocks of 16 bytes each), into w × h RGBA8 (the stored values: an sRGB texture stays sRGB-encoded)
++int rm_bc7_rgba(const uint8_t *blocks, int w, int h, uint8_t *rgba) {
++    @autoreleasepool {
++        if (!g_dev) {
++            NSString *src = @"#include <metal_stdlib>\nusing namespace metal;\n"
++                             "kernel void copy(texture2d<float, access::sample> s [[texture(0)]], texture2d<float, access::write> d [[texture(1)]], uint2 g [[thread_position_in_grid]]) {\n"
++                             "  constexpr sampler n(coord::pixel, filter::nearest);\n"
++                             "  if (g.x < d.get_width() && g.y < d.get_height()) d.write(s.sample(n, float2(g) + 0.5), g);\n}\n";
++            id<MTLDevice> dev = MTLCreateSystemDefaultDevice(); NSError *err = nil;
++            id<MTLLibrary> lib = dev ? [dev newLibraryWithSource:src options:nil error:&err] : nil;
++            id<MTLFunction> fn = [lib newFunctionWithName:@"copy"];
++            g_copy = fn ? [dev newComputePipelineStateWithFunction:fn error:&err] : nil;
++            if (!g_copy) { LOG("[RED] Wi-Fi controllers: no GPU decoder for the game's BC7 pictures (%s)", err ? err.localizedDescription.UTF8String : "no Metal device"); return 0; }
++            g_dev = dev; g_queue = [dev newCommandQueue];
++        }
++        MTLTextureDescriptor *sd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBC7_RGBAUnorm width:(NSUInteger)w height:(NSUInteger)h mipmapped:NO];
++        MTLTextureDescriptor *dd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:(NSUInteger)w height:(NSUInteger)h mipmapped:NO];
++        sd.usage = MTLTextureUsageShaderRead; dd.usage = MTLTextureUsageShaderWrite;
++        id<MTLTexture> s = [g_dev newTextureWithDescriptor:sd], d = [g_dev newTextureWithDescriptor:dd];
++        if (!s || !d) return 0;
++        [s replaceRegion:MTLRegionMake2D(0, 0, (NSUInteger)w, (NSUInteger)h) mipmapLevel:0 withBytes:blocks bytesPerRow:(NSUInteger)w / 4 * 16];
++        id<MTLCommandBuffer> cb = [g_queue commandBuffer]; id<MTLComputeCommandEncoder> ce = [cb computeCommandEncoder];
++        [ce setComputePipelineState:g_copy]; [ce setTexture:s atIndex:0]; [ce setTexture:d atIndex:1];
++        [ce dispatchThreads:MTLSizeMake((NSUInteger)w, (NSUInteger)h, 1) threadsPerThreadgroup:MTLSizeMake(8, 8, 1)];
++        [ce endEncoding]; [cb commit]; [cb waitUntilCompleted];
++        if (cb.status != MTLCommandBufferStatusCompleted) return 0;
++        [d getBytes:rgba bytesPerRow:(NSUInteger)w * 4 fromRegion:MTLRegionMake2D(0, 0, (NSUInteger)w, (NSUInteger)h) mipmapLevel:0];
++        return 1;
++    }
++}
++
++// The part of w × h RGBA8 (straight alpha) in crop (x, y, width, height; width 0 = all), scaled to at most px pixels a side, as PNG or JPEG: *out (malloc'd) and its size
++size_t rm_img_encode(const uint8_t *rgba, int w, int h, const int crop[4], int px, int jpeg, unsigned char **out) {
++    @autoreleasepool {
++        *out = NULL;
++        int cx = crop[2] ? crop[0] : 0, cy = crop[2] ? crop[1] : 0, cw = crop[2] ? crop[2] : w, ch = crop[2] ? crop[3] : h;
++        if (cx < 0 || cy < 0 || cw <= 0 || ch <= 0 || cx + cw > w || cy + ch > h) return 0;
++        double k = fmin(1.0, (double)px / (cw > ch ? cw : ch)); size_t ow = (size_t)lround(cw * k), oh = (size_t)lround(ch * k);
++        CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
++        CFDataRef all = CFDataCreate(NULL, rgba, (CFIndex)w * h * 4);
++        CGDataProviderRef dp = CGDataProviderCreateWithCFData(all);
++        CGImageRef img = CGImageCreate((size_t)w, (size_t)h, 8, 32, (size_t)w * 4, cs, (CGBitmapInfo)kCGImageAlphaLast, dp, NULL, false, kCGRenderingIntentDefault);
++        CGImageRef part = img ? CGImageCreateWithImageInRect(img, CGRectMake(cx, cy, cw, ch)) : NULL;
++        CGContextRef cx2 = part ? CGBitmapContextCreate(NULL, ow, oh, 8, 0, cs, (CGBitmapInfo)kCGImageAlphaPremultipliedLast) : NULL;
++        CGImageRef small = NULL; size_t len = 0;
++        if (cx2) {
++            CGContextSetInterpolationQuality(cx2, kCGInterpolationHigh);
++            CGContextDrawImage(cx2, CGRectMake(0, 0, ow, oh), part); small = CGBitmapContextCreateImage(cx2);
++        }
++        NSMutableData *data = [NSMutableData data];
++        CGImageDestinationRef dst = small ? CGImageDestinationCreateWithData((__bridge CFMutableDataRef)data, jpeg ? CFSTR("public.jpeg") : CFSTR("public.png"), 1, NULL) : NULL;
++        if (dst) {
++            CGImageDestinationAddImage(dst, small, (__bridge CFDictionaryRef)(jpeg ? @{(id)kCGImageDestinationLossyCompressionQuality: @0.8} : @{}));
++            if (CGImageDestinationFinalize(dst) && data.length && (*out = malloc(data.length))) { memcpy(*out, data.bytes, data.length); len = data.length; }
++            CFRelease(dst);
++        }
++        if (small) CGImageRelease(small);
++        if (cx2) CGContextRelease(cx2);
++        if (part) CGImageRelease(part);
++        if (img) CGImageRelease(img);
++        CGDataProviderRelease(dp); CFRelease(all); CGColorSpaceRelease(cs);
++        return len;
++    }
 +}
 diff --git a/dm/host/remote_json.h b/dm/host/remote_json.h
 new file mode 100644
@@ -1362,7 +1706,7 @@ index 0000000..e34abc4
 +static int rp_sid_ok(const char *s) { if (strlen(s) != 16) return 0; for (; *s; s++) if (!((*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'f'))) return 0; return 1; }
 diff --git a/dm/host/remote_mac.c b/dm/host/remote_mac.c
 new file mode 100644
-index 0000000..a16b091
+index 0000000..ab2669b
 --- /dev/null
 +++ b/dm/host/remote_mac.c
 @@ -0,0 +1,142 @@
@@ -1461,7 +1805,7 @@ index 0000000..a16b091
 +    rp_hooks h; rm_hooks(&h);
 +    rp_init(&rm_srv, code, (uint32_t)timeout, &h);
 +    rp_set_game(&rm_srv, DM_GAME_NAME);
-+    rm_race_start();
++    rm_race_start(); rm_images_start();
 +    char icon_from[1024] = "";
 +    size_t icon_n = g_icon ? rm_srv.icon.n : rm_icon_load(&g_icon, icon_from, sizeof icon_from);
 +    rp_set_icon(&rm_srv, g_icon, icon_n);
@@ -1539,12 +1883,13 @@ index 0000000..a005860
 +void dm_remote_text_end(void);
 diff --git a/dm/host/remote_mac_int.h b/dm/host/remote_mac_int.h
 new file mode 100644
-index 0000000..2826ea1
+index 0000000..7b4b646
 --- /dev/null
 +++ b/dm/host/remote_mac_int.h
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,29 @@
 +// Wi-Fi controllers on the Mac: what remote_mac.c (the socket and its thread), remote_front.c (the hooks into the front end, hid, haptics and the game's keyboard),
-+// remote_icon.c (the game card's icon) and remote_race.c (the course, place, lap and coins) share. Not for other files: their interface is remote_mac.h.
++// remote_icon.c (the game card's icon), remote_race.c (the race data) and remote_images.c with remote_img.c, remote_img_mac.m (pictures from the game's files) share. Not
++// for other files: their interface is remote_mac.h.
 +#pragma once
 +#include <pthread.h>
 +#include <stdatomic.h>
@@ -1565,12 +1910,18 @@ index 0000000..2826ea1
 +void rm_race_read(int player, rp_race *r);   // the race that player is in now
 +extern void (*dm_fs_opened)(const char *path);   // hle_fs.c: called with each path the game opens (NULL: nobody listens)
 +size_t rm_icon_load(unsigned char **out, char *from, size_t from_cap);   // remote_icon.c: the thumbnail (malloc'd; 0 = none) and the file it came from
++void rm_images_start(void);           // remote_images.c: on a build whose pictures are known, makes them when phones ask
++int rm_images_on(void);               // this build has pictures
++int rm_image(const char *key, rp_icon *out);   // a picture: 1 made (out), 0 being made, -1 none
++uint8_t *rm_img_rgba(const char *path, const char *arc, const char *tex, int *w, int *h);   // remote_img.c: a texture of the game's files as RGBA8 (malloc'd)
++int rm_bc7_rgba(const uint8_t *blocks, int w, int h, uint8_t *rgba);   // remote_img_mac.m: BC7 → RGBA8 on the GPU
++size_t rm_img_encode(const uint8_t *rgba, int w, int h, const int crop[4], int px, int jpeg, unsigned char **out);   // part of RGBA8 → PNG / JPEG (malloc'd)
 diff --git a/dm/host/remote_packet.h b/dm/host/remote_packet.h
 new file mode 100644
-index 0000000..b66856e
+index 0000000..b34b6ce
 --- /dev/null
 +++ b/dm/host/remote_packet.h
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,67 @@
 +// Wi-Fi controllers (remote_proto.h): one phone datagram. Joining (the pairing code, its limit, a free player, the same player for a phone that comes back), the
 +// state stream (newer seq only, at most RP_RATE a second), bye, an answer to the game's keyboard and a request for a piece of the icon.
 +#pragma once
@@ -1629,6 +1980,7 @@ index 0000000..b66856e
 +    if (x->rate_n++ >= RP_RATE) { rp_bad(s, "more than 250 packets a second from one phone"); return 0; }
 +    if (m.type == RP_TEXT_IN) return rp_text_in(s, x, &m, out, cap);
 +    if (m.type == RP_ICON_REQ) return rp_icon_part(s, x, m.off, out, cap);
++    if (m.type == RP_IMG_REQ) return rp_img_part(s, x, m.im, m.off, out, cap);
 +    if (x->acked && !rp_seq_newer(m.seq, x->seq)) return 0;   // older or repeated: a newer whole state was already taken
 +    x->seq = m.seq; x->rx_ns = now; x->released = 0;
 +    x->buttons = m.buttons & 0xffffu; x->ms = m.ms; x->has_ms = m.has_ms;
@@ -1639,18 +1991,19 @@ index 0000000..b66856e
 +}
 diff --git a/dm/host/remote_parse.h b/dm/host/remote_parse.h
 new file mode 100644
-index 0000000..513fc13
+index 0000000..375cd84
 --- /dev/null
 +++ b/dm/host/remote_parse.h
-@@ -0,0 +1,77 @@
-+// Wi-Fi controllers (remote_proto.h): one phone datagram → rp_msg. Types: hello, state, bye, text (an answer to the game's keyboard) and icon (a piece of the game's icon).
+@@ -0,0 +1,83 @@
++// Wi-Fi controllers (remote_proto.h): one phone datagram → rp_msg. Types: hello, state, bye, text (an answer to the game's keyboard), icon (a piece of the game's icon)
++// and img (a piece of a picture, by key).
 +#pragma once
 +#include "remote_json.h"
 +
 +// One datagram → m. Returns the type, or RP_ERR with *why saying what was wrong (for the host's summary of ignored packets)
 +static int rp_parse(const char *buf, size_t n, rp_msg *m, const char **why) {
-+    static const char *const keys[] = {"v", "t", "code", "id", "name", "sid", "seq", "b", "lx", "ly", "rx", "ry", "ms", "rumble", "ks", "text", "ok", "off"};
-+    enum { K_V, K_T, K_CODE, K_ID, K_NAME, K_SID, K_SEQ, K_B, K_LX, K_LY, K_RX, K_RY, K_MS, K_RUMBLE, K_KS, K_TEXT, K_OK, K_OFF, K_N };
++    static const char *const keys[] = {"v", "t", "code", "id", "name", "sid", "seq", "b", "lx", "ly", "rx", "ry", "ms", "rumble", "ks", "text", "ok", "off", "im"};
++    enum { K_V, K_T, K_CODE, K_ID, K_NAME, K_SID, K_SEQ, K_B, K_LX, K_LY, K_RX, K_RY, K_MS, K_RUMBLE, K_KS, K_TEXT, K_OK, K_OFF, K_IM, K_N };
 +    const char *w = "not a JSON object"; uint32_t seen = 0; char type[16] = "";
 +    memset(m, 0, sizeof *m); m->type = RP_ERR;
 +    if (why) *why = "";
@@ -1680,6 +2033,8 @@ index 0000000..513fc13
 +                case K_NAME: if (v.kind != 's' || strlen(v.s) >= sizeof m->name) goto bad; strcpy(m->name, v.s); break;
 +                case K_SID: if (v.kind != 's' || strlen(v.s) >= sizeof m->sid) goto bad; strcpy(m->sid, v.s); break;
 +                case K_TEXT: if (v.kind != 's' || strlen(v.s) >= sizeof m->text) goto bad; strcpy(m->text, v.s); break;
++                case K_IM: if (v.kind != 's' || !*v.s || strlen(v.s) >= sizeof m->im || strspn(v.s, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_/")
++                               != strlen(v.s)) goto bad; strcpy(m->im, v.s); break;
 +                case K_SEQ: if (!rp_int(&v, 0, 4294967295.0)) goto bad; m->seq = (uint32_t)v.d; break;
 +                case K_KS: if (!rp_int(&v, 0, 4294967295.0)) goto bad; m->ks = (uint32_t)v.d; break;
 +                case K_OFF: if (!rp_int(&v, 0, 16777215.0)) goto bad; m->off = (uint32_t)v.d; break;
@@ -1713,6 +2068,9 @@ index 0000000..513fc13
 +    } else if (!strcmp(type, "icon")) {
 +        if (!rp_sid_ok(m->sid) || !(seen >> K_OFF & 1)) { w = "icon without a valid sid or off"; goto bad; }
 +        m->type = RP_ICON_REQ;
++    } else if (!strcmp(type, "img")) {
++        if (!rp_sid_ok(m->sid) || !(seen >> K_OFF & 1) || !(seen >> K_IM & 1)) { w = "img without a valid sid, im or off"; goto bad; }
++        m->type = RP_IMG_REQ;
 +    } else { w = "unknown message type (t)"; goto bad; }
 +    return m->type;
 +bad:
@@ -1742,7 +2100,7 @@ index 0000000..7039567
 +#include "remote_tick.h"
 diff --git a/dm/host/remote_race.c b/dm/host/remote_race.c
 new file mode 100644
-index 0000000..119d16a
+index 0000000..4c40ed2
 --- /dev/null
 +++ b/dm/host/remote_race.c
 @@ -0,0 +1,141 @@
@@ -1764,17 +2122,17 @@ index 0000000..119d16a
 +    uint64_t owner_vt, racer_vt;             // main offsets of the two classes' vtables
 +    uint32_t count, list, index, place, lap, coins;   // owner: racer count (int32), racer pointer array; racer: its index, 0-based place and lap, coins (int32)
 +    int max;                                 // racers at most
-+    uint64_t model_vt; uint32_t drv, body, wing, tire;   // a kart's model (one per racer, made in racer order): the character, body, glider and tires (int32 ids)
++    uint64_t model_vt; uint32_t drv, dcl, body, wing, tire;   // a kart's model (one per racer, made in racer order): the character, its colour, body, glider, tires
 +    uint64_t hud_vt; uint32_t state, item;   // the item box on the screen (one per local player): its two slots' states (3: holding) and items (int32 pairs)
 +} race_row;
 +static const race_row k_race[] = {
 +    // Mario Kart 8 Deluxe 4.0.1 (v1507328): Course/<name>/ for each race, Gu_Menu behind the menus. One object of class main+0x125ada8 holds a sead::PtrArray of the racers
 +    // at +0x60 (size) / +0x68 (pointers), player 1 first; a racer (class main+0x12cac28, 12 in a race) has its index at +0x38, its place at +0x40, its lap at +0x44 and its
-+    // coins at +0x50. A kart model (class main+0x125a288, the files Driver/<name>.bfres, Kart/Body/… after it) has the character at +0x8, body +0x14, glider +0x18, tires
++    // coins at +0x50. A kart model (class main+0x125a288, the files Driver/<name>.bfres, Kart/Body/… after it) has the character at +0x8 (colour +0xc), body +0x14, glider +0x18, tires
 +    // +0x20, in the order of the game's part lists. The item box (class main+0x127e110, one object with one player) has the slots' states at +0x200 and their items at
 +    // +0x210, ids the order of the u8 table at main+0xf21e7c (id → icon frame). Found with DM_CTL scan (hle_scan.c) against the screen (mando-nx docs/ingenieria_inversa.md)
 +    {"2452c49bc26ec15904c507a34b6f16ae", "Course/", "Gu_Menu", 0x125ada8, 0x12cac28, 0x60, 0x68, 0x38, 0x40, 0x44, 0x50, 12,
-+     0x125a288, 0x08, 0x14, 0x18, 0x20, 0x127e110, 0x200, 0x210},
++     0x125a288, 0x08, 0x0c, 0x14, 0x18, 0x20, 0x127e110, 0x200, 0x210},
 +};
 +static const race_row *g_row;
 +static uint64_t g_main;
@@ -1861,11 +2219,11 @@ index 0000000..119d16a
 +    LOG("Wi-Fi controllers: this build's courses and race data go to the phones (main %s)", b);
 +}
 +static void kart_of(uint64_t m, rp_race *r) {   // a kart model, checked: its vtable, and ids within the game's lists (none has 64 entries)
-+    uint64_t vt = 0; int32_t v[4] = {-1, -1, -1, -1};
++    uint64_t vt = 0; int32_t v[5] = {-1, -1, -1, -1, -1};
 +    if (!m || !rd(m, &vt, 8) || vt != g_main + g_row->model_vt || !rd(m + g_row->drv, &v[0], 4) || !rd(m + g_row->body, &v[1], 4) || !rd(m + g_row->wing, &v[2], 4)
-+        || !rd(m + g_row->tire, &v[3], 4)) return;
-+    for (int i = 0; i < 4; i++) if (v[i] < 0 || v[i] > 63) return;
-+    r->kart = 1; r->drv = v[0]; r->body = v[1]; r->wing = v[2]; r->tire = v[3];
++        || !rd(m + g_row->tire, &v[3], 4) || !rd(m + g_row->dcl, &v[4], 4)) return;
++    for (int i = 0; i < 5; i++) if (v[i] < 0 || v[i] > 63) return;
++    r->kart = 1; r->drv = v[0]; r->body = v[1]; r->wing = v[2]; r->tire = v[3]; r->dcl = v[4];
 +}
 +static void items_of(uint64_t h, rp_race *r) {   // the item box: a slot it shows as held has its item; empty, or the roulette still turning, is -1
 +    uint64_t vt = 0; int32_t st[2], it[2];
@@ -1880,7 +2238,7 @@ index 0000000..119d16a
 +    snprintf(r->course, sizeof r->course, "%s", g_course); uint64_t m = p >= 0 && p < g_nmodel ? g_model[p] : 0, h = p == 0 ? g_hud : 0;
 +    pthread_mutex_unlock(&g_mu);
 +    if (!r->course[0]) return;
-+    kart_of(m, r); items_of(h, r);
++    r->img = rm_images_on(); kart_of(m, r); items_of(h, r);
 +    uint64_t o = atomic_load(&g_owner), x = o ? racer(o, p) : 0;
 +    int32_t place = -1, lap = -1, coins = -1;
 +    if (!x || !rd(x + g_row->place, &place, 4) || !rd(x + g_row->lap, &lap, 4) || !rd(x + g_row->coins, &coins, 4)) return;
@@ -2145,10 +2503,10 @@ index 0000000..8620226
 +}
 diff --git a/dm/host/remote_types.h b/dm/host/remote_types.h
 new file mode 100644
-index 0000000..851c129
+index 0000000..46846a7
 --- /dev/null
 +++ b/dm/host/remote_types.h
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,98 @@
 +// Wi-Fi controllers (remote_proto.h, docs/wifi-controllers.md): the constants and types every part of the protocol shares. Pure: no socket, no clock, no globals.
 +#pragma once
 +#include <stdint.h>
@@ -2167,14 +2525,15 @@ index 0000000..851c129
 +enum { RP_RACE_GAP_MS = 100 };   // a race message that changed waits this long after the previous one
 +enum { RP_COURSE = 24 };   // bytes: a course's name as the game files it
 +enum { RP_GAME_NAME = 48, RP_NAME = 24, RP_TEXT = 128, RP_ICON_CHUNK = 300 };   // bytes: the game's name, a player's name in the roster, typed text, icon data per datagram
++enum { RP_IMG_KEY = 32, RP_IMG_CHUNK = 264 };   // a picture's key ("crs/Gu_WaterPark"), and its data per datagram (smaller than the icon's: the key goes along)
 +enum { RP_FAIL_IPS = 16, RP_FAIL_PER_IP = 5, RP_FAIL_ALL = 30, RP_RATE = 250, RP_KICKS = 20 };   // wrong codes per minute (per address, all); packets per second per session; kicks per second
-+enum { RP_ERR = -1, RP_HELLO = 1, RP_STATE, RP_BYE, RP_TEXT_IN, RP_ICON_REQ };
++enum { RP_ERR = -1, RP_HELLO = 1, RP_STATE, RP_BYE, RP_TEXT_IN, RP_ICON_REQ, RP_IMG_REQ };
 +enum { RP_USE_OFF, RP_USE_OWN, RP_USE_P1 };   // what the game makes of a player's controller (rp_game.use)
 +
 +typedef struct {
 +    int type, version;
-+    char code[33], id[33], name[65], sid[17], text[RP_TEXT + 1];
-+    uint32_t seq, buttons, ks, off;   // ks: the keyboard request a text answers; off: the icon offset asked for
++    char code[33], id[33], name[65], sid[17], text[RP_TEXT + 1], im[RP_IMG_KEY + 1];   // im: the picture asked for
++    uint32_t seq, buttons, ks, off;   // ks: the keyboard request a text answers; off: the icon's or the picture's offset asked for
 +    double ax[4];   // lx ly rx ry, -1..1, y up
 +    int64_t ms; int has_ms;
 +    int rumble;   // hello: the phone plays game rumble
@@ -2185,9 +2544,11 @@ index 0000000..851c129
 +// What the game makes of a player now. use: RP_USE_*; seats: the players the game takes (1-8); taken: bit p, player p + 1 has a controller; reading: the game read that
 +// player's npad (for RP_USE_P1, player 1's) in the last half second
 +typedef struct { int use, seats, reading; uint32_t taken; } rp_game;
++typedef struct { const unsigned char *data; size_t n; uint32_t crc; } rp_icon;   // the game's icon (a small JPEG) or a picture (rp_hooks.image), not owned
 +// The race a player is in (rp_hooks.race): course, the game's own name for it ("" none known); has: place, lap (1-based) and coins are known for this player;
-+// kart: the game's ids of their character (drv), body, tires and glider (wing) are known; items: their two item slots are known (item, item2: the game's item id, -1 empty)
-+typedef struct { int has, place, lap, coins, kart, drv, body, tire, wing, items, item, item2; char course[RP_COURSE + 1]; } rp_race;
++// kart: the game's ids of their character (drv, colour dcl), body, tires and glider (wing) are known; items: their two item slots are known (item, item2: the game's item
++// id, -1 empty); img: the host makes pictures of these (rp_hooks.image)
++typedef struct { int has, place, lap, coins, kart, drv, dcl, body, tire, wing, items, item, item2, img; char course[RP_COURSE + 1]; } rp_race;
 +typedef struct {
 +    int (*take)(void *ctx, const void *owner, const char *name);   // a player slot (0..DM_PLAYERS-1) for owner, -1 when none is free
 +    void (*drop)(void *ctx, const void *owner);   // owner's slot is free
@@ -2203,6 +2564,7 @@ index 0000000..851c129
 +    void (*names)(void *ctx, char out[DM_PLAYERS][RP_NAME + 1]);
 +    void (*text)(void *ctx, const char *text, int ok);   // a phone answered the game's keyboard (rp_kbd_begin); may be NULL
 +    void (*race)(void *ctx, int player, rp_race *r);   // the race a player is in now; NULL = no race messages
++    int (*image)(void *ctx, const char *key, rp_icon *out);   // a picture by key: 1 out is it, 0 still being made, -1 none; NULL = no pictures
 +} rp_hooks;
 +
 +typedef struct {
@@ -2230,7 +2592,6 @@ index 0000000..851c129
 +typedef struct { uint32_t ip, fails; uint64_t last_ns; } rp_fail;
 +typedef struct { rp_addr to; size_t n; char text[RP_MAX_PACKET]; } rp_reply;
 +typedef struct { uint32_t id; int active, max; char title[RP_GAME_NAME + 1], init[RP_TEXT + 1]; } rp_kbd;   // the game's keyboard, while it waits for text
-+typedef struct { const unsigned char *data; size_t n; uint32_t crc; } rp_icon;   // the game's icon (a small JPEG), not owned
 +
 +typedef struct {
 +    rp_session s[RP_SESSIONS];
@@ -2245,10 +2606,10 @@ index 0000000..851c129
 +    rp_hooks h;
 +} rp_server;
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 872316b..4353d06 100644
+index 872316b..cd8e704 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -137,6 +137,27 @@ $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ..
+@@ -137,6 +137,30 @@ $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ..
  	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
  $(B)/t_hid: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
@@ -2256,10 +2617,11 @@ index 872316b..4353d06 100644
 +REMOTE_H = ../remote_proto.h ../remote_types.h ../remote_json.h ../remote_text.h ../remote_session.h ../remote_feed.h ../remote_parse.h ../remote_packet.h ../remote_tick.h
 +REMOTE_MAC = ../remote_mac.c ../remote_front.c ../remote_icon.c
 +.PHONY: remote
-+remote: $(B)/t_remote $(B)/t_remote_feed $(B)/t_kbd_map $(B)/t_remote_udp $(B)/t_remote_race
++remote: $(B)/t_remote $(B)/t_remote_feed $(B)/t_kbd_map $(B)/t_remote_udp $(B)/t_remote_race $(B)/t_remote_img
 +	$(B)/t_remote
 +	$(B)/t_remote_feed
 +	$(B)/t_remote_race
++	$(B)/t_remote_img
 +	$(B)/t_kbd_map
 +	$(B)/t_remote_udp $(QUIET)
 +run: remote
@@ -2271,6 +2633,8 @@ index 872316b..4353d06 100644
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. -o $@ t_kbd_map.c
 +$(B)/t_remote_race: t_remote_race.c ../remote_race.c ../remote_mac.h ../remote_mac_int.h $(REMOTE_H) ../dm.h $(GAME_H) | $(B)
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_remote_race.c
++$(B)/t_remote_img: t_remote_img.c ../remote_img.c ../remote_images.c ../remote_img_mac.m ../romfs_image.h ../remote_mac_int.h $(REMOTE_H) ../dm.h $(GAME_H) | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fobjc-arc -I.. $(GINC) -o $@ t_remote_img.c ../remote_img_mac.m -framework Metal -framework Foundation -framework ImageIO -framework CoreGraphics
 +$(B)/t_remote_udp: t_remote_udp.c $(REMOTE_MAC) ../remote_mac.h ../remote_mac_int.h $(REMOTE_H) ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_remote_udp.c $(REMOTE_MAC) ../hle_haptics.c -framework ImageIO -framework CoreGraphics -framework CoreFoundation
  $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -2354,10 +2718,10 @@ index 0000000..72cbf46
 +}
 diff --git a/dm/host/tests/t_remote.c b/dm/host/tests/t_remote.c
 new file mode 100644
-index 0000000..8878ef3
+index 0000000..73ce30f
 --- /dev/null
 +++ b/dm/host/tests/t_remote.c
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,155 @@
 +// Wi-Fi controllers (remote_proto.h, docs/wifi-controllers.md): message parsing and validation, stick normalization, seq ordering, and the sessions over a player slot table
 +// shared with physical controllers (pad_slots.h): pairing, wrong codes and their limit, players, a phone and a controller never on one player, release and timeout, rejoin,
 +// focus, bye. No socket and no clock: the time is passed in (t_remote_udp.c covers the socket)
@@ -2372,6 +2736,8 @@ index 0000000..8878ef3
 +    CHECK(parse("{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}", &m) == RP_BYE, "a bye");
 +    CHECK(parse("{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\",\"name\":\"Jos\\u00e9 \\ud83d\\ude00\\n\"}", &m) == RP_HELLO && !strcmp(m.name, "Jos\xc3\xa9 \xf0\x9f\x98\x80\n"), "escapes and a surrogate pair decode to UTF-8");
 +    CHECK(parse("{\"v\":2,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\"}", &m) == RP_HELLO && m.version == 2, "another version parses (the session answers it)");
++    CHECK(parse("{\"v\":1,\"t\":\"img\",\"sid\":\"0123456789abcdef\",\"im\":\"crs/Gu_WaterPark\",\"off\":264}", &m) == RP_IMG_REQ && !strcmp(m.im, "crs/Gu_WaterPark")
++          && m.off == 264, "a picture's piece asked for");
 +    static const char *const bad[] = {
 +        "", "[]", "{", "{\"v\":1,\"t\":\"state\"", "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"} x", "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\",}",
 +        "{\"v\":1,\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}",                       // a key twice
@@ -2387,6 +2753,9 @@ index 0000000..8878ef3
 +        "{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\",\"name\":\"a\x01\"}",        // a raw control byte
 +        "{\"v\":1,\"t\":\"hello\",\"code\":\"1234\",\"id\":\"abcdefgh\",\"name\":\"0123456789012345678901234567890123456789012345678901234567890123456789\"}",   // over 64 bytes
 +        "{\"v\":true,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}",
++        "{\"v\":1,\"t\":\"img\",\"sid\":\"0123456789abcdef\",\"off\":0}", "{\"v\":1,\"t\":\"img\",\"sid\":\"0123456789abcdef\",\"im\":\"\",\"off\":0}",
++        "{\"v\":1,\"t\":\"img\",\"sid\":\"0123456789abcdef\",\"im\":\"crs/a\\\"b\",\"off\":0}",   // a key with a character keys never have
++        "{\"v\":1,\"t\":\"img\",\"sid\":\"0123456789abcdef\",\"im\":\"crs/0123456789012345678901234567890\",\"off\":0}",   // a key over 32 bytes
 +    };
 +    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) { int r = parse(bad[i], &m); CHECK(r == RP_ERR, bad[i]); }
 +    char big[700]; memset(big, ' ', sizeof big); memcpy(big, "{\"v\":1,\"t\":\"bye\",\"sid\":\"0123456789abcdef\"}", 41); const char *why;
@@ -2560,10 +2929,10 @@ index 0000000..3dab1dc
 +}
 diff --git a/dm/host/tests/t_remote_feed.c b/dm/host/tests/t_remote_feed.c
 new file mode 100644
-index 0000000..86e1b82
+index 0000000..6281584
 --- /dev/null
 +++ b/dm/host/tests/t_remote_feed.c
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,167 @@
 +// Wi-Fi controllers (remote_feed.h): what each streaming phone is told about the game. info (on a change and every RP_INFO_MS, with reading and the icon's size and CRC),
 +// roster (who holds each player, phones by their names), the game's keyboard (asked until one phone answers, then "done" to every asked phone), pieces of the icon,
 +// race (the course, and place, lap, coins, character and kart, items when known: on a change at most every RP_RACE_GAP_MS, and every RP_RACE_MS)
@@ -2577,6 +2946,12 @@ index 0000000..86e1b82
 +static rp_reply rep[RP_SESSIONS * 6]; static int nrep;
 +static int tick(uint64_t now) { return nrep = rp_tick(&S, now, rep, RP_SESSIONS * 6); }
 +static rp_race g_race; static void f_race(void *ctx, int p, rp_race *r) { (void)ctx; (void)p; *r = g_race; }
++static unsigned char g_pic[600]; static int g_pic_state;   // the picture "drv/4/0…": 600 bytes once made (state 1), being made (0); any other key: none
++static int f_image(void *ctx, const char *key, rp_icon *out) {
++    (void)ctx; if (strncmp(key, "drv/4/0", 7)) return -1;
++    if (g_pic_state > 0) *out = (rp_icon){g_pic, sizeof g_pic, 0x1234abcd};
++    return g_pic_state;
++}
 +static const char *find(const char *type, int nth) {   // the nth reply of that type in the last tick
 +    char want[32]; snprintf(want, sizeof want, "\"t\":\"%s\"", type);
 +    for (int i = 0; i < nrep; i++) if (strstr(rep[i].text, want) && !nth--) return rep[i].text;
@@ -2681,6 +3056,25 @@ index 0000000..86e1b82
 +          "icon needs off, text needs ok");
 +}
 +
++static void t_images(void) {
++    char sid[17], b64[512]; int p; uint64_t t = 1000 * MS;
++    start(); hello(A1, t, "482913", "phone-ana-1"); welcome(sid, &p); state(A1, t + MS, sid, 1, 0, 0, 0);
++    CHECK(send_s(A1, t + 2 * MS, "{\"v\":1,\"t\":\"img\",\"sid\":\"%s\",\"im\":\"drv/4/0\",\"off\":0}", sid) && strstr(out, "\"im\":\"drv/4/0\",\"isz\":0}"),
++          "no picture hook: none");
++    S.h.image = f_image; g_pic_state = 0; for (size_t i = 0; i < sizeof g_pic; i++) g_pic[i] = (unsigned char)(i * 5 + 1);
++    CHECK(!send_s(A1, t + 3 * MS, "{\"v\":1,\"t\":\"img\",\"sid\":\"%s\",\"im\":\"drv/4/0\",\"off\":0}", sid), "being made: no answer (the phone asks again)");
++    g_pic_state = 1;
++    CHECK(send_s(A1, t + 4 * MS, "{\"v\":1,\"t\":\"img\",\"sid\":\"%s\",\"im\":\"drv/4/0\",\"off\":264}", sid) && strstr(out, "\"ih\":\"1234abcd\",\"isz\":600,\"off\":264,")
++          && (rp_base64(g_pic + 264, RP_IMG_CHUNK, b64, sizeof b64), strstr(out, b64)), "a piece: its CRC, the size and the bytes");
++    CHECK(send_s(A1, t + 5 * MS, "{\"v\":1,\"t\":\"img\",\"sid\":\"%s\",\"im\":\"drv/4/0\",\"off\":528}", sid) && (rp_base64(g_pic + 528, 72, b64, sizeof b64), strstr(out, b64)),
++          "the last, shorter piece");
++    CHECK(!send_s(A1, t + 6 * MS, "{\"v\":1,\"t\":\"img\",\"sid\":\"%s\",\"im\":\"drv/4/0\",\"off\":600}", sid), "nothing past the end");
++    CHECK(send_s(A1, t + 7 * MS, "{\"v\":1,\"t\":\"img\",\"sid\":\"%s\",\"im\":\"itm/99\",\"off\":0}", sid) && strstr(out, "\"isz\":0}"), "a key the host has no picture for");
++    rp_session x; memset(&x, 0, sizeof x); snprintf(x.sid, sizeof x.sid, "0123456789abcdef"); x.c_seq = 0; rp_reply rep;
++    char key[RP_IMG_KEY + 1]; memset(key, 'k', RP_IMG_KEY); key[RP_IMG_KEY] = 0; memcpy(key, "drv/4/0", 7);
++    size_t n = rp_img_part(&S, &x, key, 0, rep.text, sizeof rep.text);
++    CHECK(n > 400 && n < RP_MAX_PACKET && rep.text[n - 1] == '}', "a whole piece with the longest key fits a datagram");
++}
 +static void t_race(void) {
 +    char sid[17]; int p; uint64_t t = 1000 * MS;
 +    start(); hello(A1, t, "482913", "phone-ana-1"); welcome(sid, &p); state(A1, t + MS, sid, 1, 0, 0, 0);
@@ -2695,23 +3089,134 @@ index 0000000..86e1b82
 +    state(A1, t + 2100 * MS, sid, 2, 0, 0, 0); tick(t + 2204 * MS); r = find("race", 0); CHECK(r && strstr(r, "\"cs\":4,"), "renewed after 2 s");
 +    g_race.kart = 1; g_race.drv = 40; g_race.body = 15; g_race.tire = 20; g_race.wing = 0; g_race.items = 1; g_race.item = 3; g_race.item2 = -1;
 +    tick(t + 2400 * MS); r = find("race", 0);
-+    CHECK(r && strstr(r, "\"coin\":7,\"drv\":40,\"body\":15,\"tire\":20,\"wing\":0,\"itm\":3,\"itm2\":-1}"), r ? r : "no race: character, kart and items");
++    CHECK(r && strstr(r, "\"coin\":7,\"drv\":40,\"dcl\":0,\"body\":15,\"tire\":20,\"wing\":0,\"itm\":3,\"itm2\":-1}"), r ? r : "no race: character, kart and items");
 +    rp_session x; memset(&x, 0, sizeof x); snprintf(x.sid, sizeof x.sid, "0123456789abcdef"); x.c_seq = 4294967295u;
-+    rp_race w = {1, 12, 99, 999, 1, 63, 63, 63, 63, 1, 63, 63, ""}; memset(w.course, 'A', RP_COURSE); rp_reply rep;
++    rp_race w = {1, 12, 99, 999, 1, 63, 63, 63, 63, 63, 1, 63, 63, 1, ""}; memset(w.course, 'A', RP_COURSE); rp_reply rep;
 +    size_t n = rp_race_msg(&x, &w, rep.text, sizeof rep.text); CHECK(n && n <= 200 && rep.text[n - 1] == '}', "the longest race message stays within 200 bytes");
 +}
 +
 +int main(void) {
-+    t_info(); t_roster(); t_keyboard(); t_icon(); t_race();
++    t_info(); t_roster(); t_keyboard(); t_icon(); t_images(); t_race();
 +    printf("t_remote_feed: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/host/tests/t_remote_img.c b/dm/host/tests/t_remote_img.c
+new file mode 100644
+index 0000000..cae6445
+--- /dev/null
++++ b/dm/host/tests/t_remote_img.c
+@@ -0,0 +1,105 @@
++// The phones' pictures (remote_img.c, remote_images.c, remote_img_mac.m) on a made-up RomFS folder laid out as Mario Kart 8 Deluxe 4.0.1's: Yaz0 with back-references,
++// SARCs (named and not, compressed and not), BNTX textures in block-linear GOBs (one and two GOBs a block) read back pixel for pixel, a BC7 block decoded by the GPU,
++// a character by colour when the plain icon is missing, a course picture cropped to JPEG, and none for what is not there or another build. No game data: every byte
++// is written here.
++#include "../remote_img.c"
++#include "../remote_images.c"
++#include <sys/stat.h>
++
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++module_t g_mod[MAX_MOD]; int g_nmod;
++static void put16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
++static void put32(uint8_t *p, uint32_t v) { put16(p, v); put16(p + 2, v >> 16); }
++static void put64(uint8_t *p, uint64_t v) { put32(p, (uint32_t)v); put32(p + 4, (uint32_t)(v >> 32)); }
++
++// Linear rows → block-linear: each byte of a GOB knows its place from the bits of its offset (x: bits 0-3, 5, 8; y: bits 4, 6-7)
++static void swizzle(const uint8_t *lin, uint8_t *bl, uint32_t row, uint32_t rows, unsigned bh) {
++    uint32_t gh = 1u << bh, gw = (row + 63) / 64, by = (rows + 8 * gh - 1) / (8 * gh);
++    for (uint32_t g = 0; g < gw * by * gh; g++)
++        for (uint32_t o = 0; o < 512; o++) {
++            uint32_t blk = g / gh, x = blk % gw * 64 + (o >> 8 & 1) * 32 + (o >> 5 & 1) * 16 + (o & 15), y = blk / gw * 8 * gh + g % gh * 8 + (o >> 6 & 3) * 2 + (o >> 4 & 1);
++            bl[(size_t)g * 512 + o] = x < row && y < rows ? lin[(size_t)y * row + x] : 0;
++        }
++}
++typedef struct { const char *name; uint32_t fmt, w, h, bh; const uint8_t *lin; } tex;   // lin: linear rows (RGBA8 pixels, or BC7 blocks)
++static size_t bntx(uint8_t *o, const tex *t, int nt) {
++    memset(o, 0, 0x100 + 0x100 * (size_t)nt); memcpy(o, "BNTX", 4); memcpy(o + 0x20, "NX  ", 4); put32(o + 0x24, (uint32_t)nt); put64(o + 0x28, 0x40);
++    size_t at = 0x100 + 0x100 * (size_t)nt;
++    for (int i = 0; i < nt; i++) {
++        uint8_t *b = o + 0x100 + 0x100 * i; size_t base = (size_t)(b - o); int bc7 = t[i].fmt >> 8 == 0x20;
++        uint32_t row = bc7 ? t[i].w / 4 * 16 : t[i].w * 4, rows = bc7 ? t[i].h / 4 : t[i].h, gh = 1u << t[i].bh;
++        put64(o + 0x40 + 8 * i, base); memcpy(b, "BRTI", 4); put32(b + 0x1c, t[i].fmt); put32(b + 0x24, t[i].w); put32(b + 0x28, t[i].h); put32(b + 0x34, t[i].bh);
++        put64(b + 0x60, base + 0x80); put16(b + 0x80, (uint32_t)strlen(t[i].name)); memcpy(b + 0x82, t[i].name, strlen(t[i].name));
++        put64(b + 0x70, base + 0xc0); at = (at + 511) & ~(size_t)511; put64(b + 0xc0, at);
++        swizzle(t[i].lin, o + at, row, rows, t[i].bh); at += (size_t)(row + 63) / 64 * ((rows + 8 * gh - 1) / (8 * gh)) * 512 * gh;
++    }
++    return at;
++}
++static size_t sarc(uint8_t *o, const char *name, const uint8_t *data, size_t n) {   // one member, named or not (name NULL)
++    memset(o, 0, 0x100); memcpy(o, "SARC", 4); put16(o + 4, 0x14); put16(o + 6, 0xfeff); memcpy(o + 0x14, "SFAT", 4); put16(o + 0x18, 0xc); put16(o + 0x1a, 1);
++    put32(o + 0x24, name ? 1u << 24 : 0); put32(o + 0x2c, (uint32_t)n); memcpy(o + 0x30, "SFNT", 4); put16(o + 0x34, 8);
++    if (name) strcpy((char *)o + 0x38, name);
++    put32(o + 0xc, 0x100); put32(o + 8, (uint32_t)(0x100 + n)); memmove(o + 0x100, data, n); return 0x100 + n;
++}
++static size_t yaz0_lit(uint8_t *o, const uint8_t *d, size_t n) {   // Yaz0 of literals only
++    memcpy(o, "Yaz0", 4); o[4] = (uint8_t)(n >> 24); o[5] = (uint8_t)(n >> 16); o[6] = (uint8_t)(n >> 8); o[7] = (uint8_t)n; memset(o + 8, 0, 8);
++    size_t p = 16;
++    for (size_t i = 0; i < n; i += 8) { size_t k = n - i < 8 ? n - i : 8; o[p++] = (uint8_t)(0xff00 >> k); memcpy(o + p, d + i, k); p += k; }
++    return p;
++}
++static char g_dir[256];
++static void put_file(const char *rel, const uint8_t *d, size_t n) {
++    char p[512]; snprintf(p, sizeof p, "%s/%s", g_dir, rel);
++    for (char *s = p + strlen(g_dir) + 1; (s = strchr(s, '/')); s++) { *s = 0; mkdir(p, 0755); *s = '/'; }
++    FILE *f = fopen(p, "wb"); fwrite(d, 1, n, f); fclose(f);
++}
++static void bits(uint8_t *blk, unsigned at, unsigned n, unsigned v) { for (unsigned i = 0; i < n; i++) if (v >> i & 1) blk[(at + i) / 8] |= (uint8_t)(1u << (at + i) % 8); }
++static int wait_pic(const char *key, rp_icon *p) { int r; for (int i = 0; i < 500 && !(r = rm_image(key, p)); i++) usleep(10000); return r; }
++
++int main(void) {
++    static uint8_t a[1 << 20], b[1 << 20], c[1 << 20], mario[16 * 8 * 4], yoshi[16 * 8 * 4], mush[16 * 16 * 4], bc7[76 * 48 * 16];
++    size_t n; int own, w = 0, h = 0;
++    const uint8_t z[] = {'Y', 'a', 'z', '0', 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0xe0, 'a', 'b', 'c', 0x40, 0x02};   // abc, then 6 bytes 3 back
++    const uint8_t *u = yaz0(z, sizeof z, &n, &own); CHECK(u && own && n == 9 && !memcmp(u, "abcabcabc", 9), "Yaz0: literals and a back-reference"); if (own) free((void *)u);
++    CHECK(!yaz0(z, sizeof z - 1, &n, &own), "Yaz0 cut short: nothing");
++
++    for (size_t i = 0; i < sizeof mario; i++) { mario[i] = (uint8_t)(i * 3 + 1); yoshi[i] = (uint8_t)(i * 5 + 2); }
++    for (size_t i = 0; i < sizeof mush; i++) mush[i] = (uint8_t)(i * 7 + 3);
++    for (size_t k = 0; k < 76 * 48; k++) { uint8_t *blk = bc7 + 16 * k; bits(blk, 6, 1, 1); bits(blk, 7, 7, 127); bits(blk, 21, 7, 0); bits(blk, 35, 7, 64); bits(blk, 49, 7, 127); bits(blk, 63, 1, 1); }
++    const tex chars[] = {{"tc_Chara_Mario^l", 0x0b06, 16, 8, 0, mario}, {"tc_Chara_Yoshi03^l", 0x0b06, 16, 8, 0, yoshi}, {"tc_Chara_Odd^s", 0x1d01, 16, 8, 0, mario}};
++    const tex items[] = {{"tc_Item_Mush^l", 0x0b06, 16, 16, 1, mush}}, course[] = {{"ym_CoursePict_Gu_Test_00^u", 0x2006, 304, 192, 3, bc7}};
++    n = bntx(a, chars, 3); n = sarc(b, NULL, a, n); n = yaz0_lit(c, b, n); n = sarc(a, "mn_L_CharaIcon_00.szs", c, n);
++    snprintf(g_dir, sizeof g_dir, "/tmp/t_remote_img_%d", (int)getpid()); mkdir(g_dir, 0755); setenv("DM_ROMFS", g_dir, 1);
++    put_file("UI/cmn/menu.sarc", a, n);
++    n = bntx(a, items, 1); n = sarc(b, NULL, a, n); n = sarc(a, "rc_L_ItemBox_00.szs", b, n); put_file("UI/cmn/race.sarc", a, n);
++    n = bntx(a, course, 1); put_file("UI/cmn/menu/ym_CoursePict_Gu_Test_00^u.bntx", a, n);
++
++    uint8_t *px = rm_img_rgba("UI/cmn/menu.sarc", "mn_L_CharaIcon_00.szs", "tc_Chara_Mario^l", &w, &h);
++    CHECK(px && w == 16 && h == 8 && !memcmp(px, mario, sizeof mario), "an RGBA8 texture in a Yaz0 SARC in a SARC, back pixel for pixel"); free(px);
++    px = rm_img_rgba("UI/cmn/race.sarc", "rc_L_ItemBox_00.szs", "tc_Item_Mush^l", &w, &h);
++    CHECK(px && w == 16 && h == 16 && !memcmp(px, mush, sizeof mush), "two GOBs a block, a SARC not compressed"); free(px);
++    CHECK(!rm_img_rgba("UI/cmn/menu.sarc", "mn_L_CharaIcon_00.szs", "tc_Chara_Odd^s", &w, &h), "a format not taken (BC4): nothing");
++    CHECK(!rm_img_rgba("UI/cmn/menu.sarc", "mn_L_CharaIcon_00.szs", "tc_Chara_Luigi^l", &w, &h), "a texture not there: nothing");
++    CHECK(!rm_img_rgba("UI/cmn/menu.sarc", "other.szs", "tc_Chara_Mario^l", &w, &h) && !rm_img_rgba("UI/none.sarc", NULL, "x", &w, &h), "a member or a file not there");
++    px = rm_img_rgba("UI/cmn/menu/ym_CoursePict_Gu_Test_00^u.bntx", NULL, "ym_CoursePict_Gu_Test_00^u", &w, &h);
++    CHECK(px && w == 304 && h == 192 && px[0] == 255 && px[1] == 1 && px[2] == 129 && px[3] == 255 && !memcmp(px, px + (303 * 4 + 191 * 304 * 4), 4),
++          "BC7 (mode 6, one colour) decoded by the GPU, stored values kept"); free(px);
++    n = bntx(a, items, 1); a[0x100 + 0x28] = 64; CHECK(!bntx_rgba(a, n, "tc_Item_Mush^l", &w, &h), "a texture taller than its data: nothing");
++
++    rp_icon p; g_nmod = 1; snprintf(g_mod[0].name, sizeof g_mod[0].name, "main");
++    snprintf(g_mod[0].build_id, sizeof g_mod[0].build_id, "0123456789abcdef0123456789abcdef");
++    rm_images_start(); CHECK(!rm_images_on() && rm_image("drv/0/0", &p) == -1, "another build: no pictures");
++    snprintf(g_mod[0].build_id, sizeof g_mod[0].build_id, "2452C49BC26EC15904C507A34B6F16AE"); rm_images_start(); CHECK(rm_images_on(), "Mario Kart 8 Deluxe 4.0.1");
++    CHECK(rm_image("drv/0/0", &p) == 0, "asked: being made");
++    CHECK(wait_pic("drv/0/0", &p) == 1 && p.n > 8 && !memcmp(p.data, "\x89PNG", 4) && p.crc == crc32(p.data, p.n), "Mario's icon, a PNG with its CRC");
++    CHECK(wait_pic("drv/4/3", &p) == 1 && !memcmp(p.data, "\x89PNG", 4), "Yoshi by colour: tc_Chara_Yoshi03");
++    CHECK(wait_pic("itm/3", &p) == 1 && !memcmp(p.data, "\x89PNG", 4), "the mushroom's icon");
++    CHECK(wait_pic("crs/Gu_Test", &p) == 1 && p.data[0] == 0xff && p.data[1] == 0xd8, "a course picture, cropped, as JPEG");
++    CHECK(wait_pic("itm/99", &p) == -1 && wait_pic("drv/1/0", &p) == -1 && wait_pic("crs/Gu_Test/x", &p) == -1, "no such item, no Luigi here, a key that is not one");
++    const unsigned char *first = NULL; wait_pic("drv/0/0", &p); first = p.data; wait_pic("drv/0/0", &p); CHECK(p.data == first, "kept: made once");
++
++    char cmd[600]; snprintf(cmd, sizeof cmd, "rm -rf '%s'", g_dir); if (system(cmd)) fprintf(stderr, "could not remove %s\n", g_dir);
++    printf("t_remote_img: %d checks, %d failed\n", checks, fails);
 +    return fails != 0;
 +}
 diff --git a/dm/host/tests/t_remote_race.c b/dm/host/tests/t_remote_race.c
 new file mode 100644
-index 0000000..c72781b
+index 0000000..8d1dd94
 --- /dev/null
 +++ b/dm/host/tests/t_remote_race.c
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,78 @@
 +// The phones' race data (remote_race.c) on a fake heap laid out as Mario Kart 8 Deluxe 4.0.1's: the course follows the files the game opens (a course folder starts a race,
 +// the menus' backdrop ends it, other files change nothing), the racers' owner and the kart models are found by their vtables, a player reads their own racer's place, lap
 +// and coins (1-based) and their kart, player 1 the items of the item box the game makes later (none with two boxes), and anything that does not check out (an unknown
@@ -2723,6 +3228,7 @@ index 0000000..c72781b
 +#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
 +module_t g_mod[MAX_MOD]; int g_nmod;
 +void (*dm_fs_opened)(const char *path);
++int rm_images_on(void) { return 1; }
 +static uint64_t g_heap[0x2000];   // 64 KB of fake guest heap
 +void dm_guest_heap(uint8_t **base, size_t *size) { *base = (uint8_t *)g_heap; *size = sizeof g_heap; }
 +int dm_guest_heap_readable(uint64_t a, size_t n) { uint64_t b = (uint64_t)(uintptr_t)g_heap; return a >= b && n <= sizeof g_heap && a - b <= sizeof g_heap - n; }
@@ -2737,7 +3243,7 @@ index 0000000..c72781b
 +    for (int i = 0; i < n; i++) {
 +        int r = RACERS + i * STEP; g_heap[LIST + i] = at(r); g_heap[r] = MAIN + 0x12cac28;
 +        put32(r, 0x38, i); put32(r, 0x40, (i + 3) % n); put32(r, 0x44, 1); put32(r, 0x50, i);
-+        int m = KARTS + i * MSTEP; g_heap[m] = MAIN + 0x125a288; put32(m, 0x8, 40 + i); put32(m, 0x14, 10 + i); put32(m, 0x18, i % 3); put32(m, 0x20, 20 - i);
++        int m = KARTS + i * MSTEP; g_heap[m] = MAIN + 0x125a288; put32(m, 0x8, 40 + i); put32(m, 0xc, i % 4); put32(m, 0x14, 10 + i); put32(m, 0x18, i % 3); put32(m, 0x20, 20 - i);
 +    }
 +}
 +static void hud(int w, int st1, int it1, int st2, int it2) { g_heap[w] = MAIN + 0x127e110; put32(w, 0x200, st1); put32(w, 0x210, it1); put32(w, 0x204, st2); put32(w, 0x214, it2); }
@@ -2763,7 +3269,7 @@ index 0000000..c72781b
 +    CHECK(!strcmp(r.course, "Gu_WaterPark") && r.has && r.place == 4 && r.lap == 2 && r.coins == 0, "a course: player 1 is racer 0 (4th, lap 2, no coins)");
 +    CHECK(r.kart && r.drv == 40 && r.body == 10 && r.wing == 0 && r.tire == 20 && !r.items, "player 1's kart is model 0; no item box yet: no items");
 +    r = race_of(3); CHECK(r.has && r.place == 7 && r.coins == 3, "player 4 reads racer 3");
-+    CHECK(r.kart && r.drv == 43 && r.body == 13 && r.wing == 0 && r.tire == 17, "and model 3");
++    CHECK(r.kart && r.drv == 43 && r.dcl == 3 && r.body == 13 && r.wing == 0 && r.tire == 17 && r.img, "and model 3, its colour; this build has pictures");
 +    hud(HUD, 3, 15, 0, 2); r = wait_for(0, 1); CHECK(r.items && r.item == 15 && r.item2 == -1, "the item box, made later: a coin held, the other slot empty");
 +    CHECK(!race_of(1).items, "items for player 1 only");
 +    put32(HUD, 0x200, 2); r = race_of(0); CHECK(r.items && r.item == -1, "the roulette still turning: empty");
@@ -2791,10 +3297,10 @@ index 0000000..c72781b
 +}
 diff --git a/dm/host/tests/t_remote_udp.c b/dm/host/tests/t_remote_udp.c
 new file mode 100644
-index 0000000..94317be
+index 0000000..0619689
 --- /dev/null
 +++ b/dm/host/tests/t_remote_udp.c
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,184 @@
 +// Wi-Fi controllers end to end on loopback: remote_mac.c's real socket and thread, the player slots shared with the keyboard (pad_slots.h) and what hle_hid.c reports on each
 +// npad. Three fake phones join Mario Kart's four players beside the keyboard (DM_KBD_PLAYER=own), a fourth is refused, a wrong code is refused, presses reach their own npads,
 +// an older seq is dropped, a silent phone is released and then loses its player, the rejoin gets it back, bye and the host's quit are sent; the game's feed (info with the game
@@ -2839,6 +3345,8 @@ index 0000000..94317be
 +void rm_race_read(int p, rp_race *r) {
 +    snprintf(r->course, sizeof r->course, "Gu_WaterPark"); r->has = 1; r->place = p + 1; r->lap = 2; r->coins = 5; r->kart = 1; r->drv = 4; r->body = 14; r->tire = 20;
 +}
++void rm_images_start(void) {}   // remote_images.c has its own test (t_remote_img.c): here one picture of three bytes
++int rm_image(const char *key, rp_icon *out) { static const unsigned char p[] = "png"; if (strcmp(key, "itm/3")) return -1; *out = (rp_icon){p, 3, 7}; return 1; }
 +
 +static pad_slots g_slots; static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER; static _Atomic int g_changes;
 +static void changed(void) { g_changes++; }
@@ -2923,7 +3431,7 @@ index 0000000..94317be
 +    st(&a, DM_BTN_A, 1, 0); CHECK(rx(&a, "ack", m, sizeof m, 500) && strstr(m, "\"player\":2"), "the first state is acked with the player");
 +    CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"game\":\"" DM_GAME_NAME "\"") && strstr(m, "\"use\":\"own\"") && strstr(m, "\"seats\":4") && strstr(m, "\"taken\":15,"),
 +          "info: the game reads the phone's npad as its own player, four seats, players 1..4 held");
-+    CHECK(rx(&a, "race", m, sizeof m, 100) && strstr(m, "\"crs\":\"Gu_WaterPark\",\"pos\":2,\"lap\":2,\"coin\":5,\"drv\":4,\"body\":14,\"tire\":20,\"wing\":0}"),
++    CHECK(rx(&a, "race", m, sizeof m, 100) && strstr(m, "\"crs\":\"Gu_WaterPark\",\"pos\":2,\"lap\":2,\"coin\":5,\"drv\":4,\"dcl\":0,\"body\":14,\"tire\":20,\"wing\":0}"),
 +          "race: player 2's course, place, lap, coins, character and kart");
 +    uint32_t one[] = {0, NPAD_HANDHELD}; h_hid_SetIds(one, 2); st(&a, DM_BTN_A, 1, 0);
 +    CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"use\":\"p1\"") && strstr(m, "\"seats\":1"), "a one-player screen: the phone is told it feeds player 1");
@@ -2935,6 +3443,8 @@ index 0000000..94317be
 +    CHECK(strstr(a.roster, "\"n1\":\"keyboard\"") && strstr(a.roster, "\"n2\":\"Ana\"") && strstr(a.roster, "\"n3\":\"Luis\"") && strstr(a.roster, "\"n4\":\"Sol\""),
 +          a.roster[0] ? a.roster : "no roster came");
 +    tx(&a, "{\"v\":1,\"t\":\"icon\",\"sid\":\"%s\",\"off\":0}", a.sid); CHECK(rx(&a, "iconpart", m, sizeof m, 500) && strstr(m, "\"off\":0,"), "a piece of the icon");
++    tx(&a, "{\"v\":1,\"t\":\"img\",\"sid\":\"%s\",\"im\":\"itm/3\",\"off\":0}", a.sid);
++    CHECK(rx(&a, "imgpart", m, sizeof m, 500) && strstr(m, "\"im\":\"itm/3\",\"ih\":\"00000007\",\"isz\":3,\"off\":0,\"d\":\"cG5n\""), "a picture's piece");
 +    dm_remote_text_begin("Nombre", "Ana", 10, typed); st(&a, DM_BTN_A, 1, 0);
 +    CHECK(rx(&a, "kbd", m, sizeof m, 500) && strstr(m, "\"title\":\"Nombre\"") && strstr(m, "\"init\":\"Ana\""), "the game's keyboard reaches the phone");
 +    const char *ks = strstr(m, "\"ks\":"); tx(&a, "{\"v\":1,\"t\":\"text\",\"sid\":\"%s\",\"ks\":%d,\"text\":\"Joel\",\"ok\":1}", a.sid, ks ? atoi(ks + 5) : 0);
@@ -2993,15 +3503,17 @@ index be773ea..1412e0a 100644
  dm/host/motion_fusion.h	hle:*SixAxisSensor*	six-axis motion mapping and orientation
 diff --git a/dm/tools/remote_phone.py b/dm/tools/remote_phone.py
 new file mode 100644
-index 0000000..53093e8
+index 0000000..055a94d
 --- /dev/null
 +++ b/dm/tools/remote_phone.py
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,128 @@
 +#!/usr/bin/env python3
 +"""Fake phones for the Wi-Fi controllers (docs/wifi-controllers.md): joins the host like dm/remote_pad does and sends whole states at 60 Hz, for checking a host without a phone.
-+  remote_phone.py --code 482913 [--host 127.0.0.1] [--port 47800] [--phones 3] [--seconds 10] [--press A] [--every 1.0]
++  remote_phone.py --code 482913 [--host 127.0.0.1] [--port 47800] [--phones 3] [--seconds 10] [--press A] [--every 1.0] [--pictures DIR]
 +Each phone presses --press for half of every --every seconds and tilts the left stick right meanwhile. One JSON line per event on stdout (join, welcome, reject, ack counts, kick,
-+bye, info, roster and race when what they say changes); exit 0 when every phone got a player and acks, 1 otherwise. Standard library only."""
++bye, info, roster and race when what they say changes); exit 0 when every phone got a player and acks, 1 otherwise. With --pictures, phone 1 pulls the pictures a race
++names (when the host makes them: img) as the app does and writes each to DIR (a picture event says its size and kind). Standard library only."""
++import base64
 +import argparse
 +import json
 +import secrets
@@ -3028,9 +3540,22 @@ index 0000000..53093e8
 +        self.info = None   # what the host's last info said: game, use, seats, taken, rd, isz
 +        self.roster = None   # who holds each player, as the host's last roster said
 +        self.race = None   # the course, place, lap, coins, character and kart, items, as the host's last race said
++        self.pics = {}   # picture key → [size or None, bytearray, offsets got, when last asked]; size 0: the host has none
 +
 +    def send(self, **m):
 +        self.sock.sendto(json.dumps(dict(v=1, **m), separators=(',', ':')).encode(), self.addr)
++
++    def ask_pics(self, now):   # one piece of each picture not yet whole, again after 0.4 s without it
++        for k, p in self.pics.items():
++            if p[0] == 0 or (p[0] and len(p[2]) * 264 >= p[0]) or now - p[3] < 0.4: continue
++            p[3] = now
++            for off in ([0] if p[0] is None else [o for o in range(0, p[0], 264) if o not in p[2]][:4]): self.send(t='img', sid=self.sid, im=k, off=off)
++
++    def done_pic(self, key, p):
++        kind = 'none' if not p[0] else 'jpeg' if p[1][:2] == b'\xff\xd8' else 'png' if p[1][:4] == b'\x89PNG' else 'other'
++        if p[0] and self.out:
++            with open(f'{self.out}/{key.replace("/", "_")}.{kind}', 'wb') as f: f.write(p[1])
++        say(ev='picture', phone=self.n, key=key, size=p[0], kind=kind)
 +
 +    def hello(self):
 +        self.last_hello = time.monotonic()
@@ -3057,8 +3582,20 @@ index 0000000..53093e8
 +            names = {k: v for k, v in m.items() if k[:1] == 'n' and k[1:].isdigit()}
 +            if names != self.roster: self.roster = names; say(ev='roster', phone=self.n, **names)
 +        elif t == 'race' and m.get('sid') == self.sid:
-+            race = {k: m.get(k) for k in ('crs', 'pos', 'lap', 'coin', 'drv', 'body', 'tire', 'wing', 'itm', 'itm2')}
++            race = {k: m.get(k) for k in ('crs', 'pos', 'lap', 'coin', 'drv', 'dcl', 'body', 'tire', 'wing', 'itm', 'itm2', 'img')}
 +            if race != self.race: self.race = race; say(ev='race', phone=self.n, **race)
++            if m.get('img') == 1:
++                keys = [f'crs/{m["crs"]}' if m.get('crs') else None, f'drv/{m["drv"]}/{m.get("dcl", 0)}' if 'drv' in m else None, 'itm/15']
++                keys += [f'itm/{m[k]}' for k in ('itm', 'itm2') if m.get(k, -1) >= 0]
++                for k in keys:
++                    if k and k not in self.pics: self.pics[k] = [None, bytearray(), set(), 0.0]
++        elif t == 'imgpart' and m.get('sid') == self.sid and m.get('im') in self.pics:
++            p = self.pics[m['im']]
++            if p[0] == 0 or (p[0] and len(p[2]) * 264 >= p[0]): return   # already whole, or none
++            if p[0] is None or p[0] != m.get('isz'): p[:3] = [m.get('isz'), bytearray(m.get('isz') or 0), set()]
++            if p[0]:
++                d = base64.b64decode(m['d']); p[1][m['off']:m['off'] + len(d)] = d; p[2].add(m['off'])
++            if not p[0] or len(p[2]) * 264 >= p[0]: self.done_pic(m['im'], p)
 +        elif t == 'reject': self.reject = m.get('reason'); say(ev='reject', phone=self.n, reason=self.reject)
 +        elif t == 'kick': self.sid = None; say(ev='kick', phone=self.n, reason=m.get('reason')); self.hello()
 +        elif t == 'bye': say(ev='bye', phone=self.n, reason=m.get('reason')); self.sid = None
@@ -3068,10 +3605,11 @@ index 0000000..53093e8
 +    ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
 +    ap.add_argument('--host', default='127.0.0.1'); ap.add_argument('--port', type=int, default=47800); ap.add_argument('--code', required=True)
 +    ap.add_argument('--phones', type=int, default=1); ap.add_argument('--seconds', type=float, default=10); ap.add_argument('--press', default='A')
-+    ap.add_argument('--every', type=float, default=1.0)
++    ap.add_argument('--every', type=float, default=1.0); ap.add_argument('--pictures', metavar='DIR')
 +    a = ap.parse_args()
 +    if a.press not in BUTTONS: ap.error(f'--press: one of {" ".join(BUTTONS)}')
 +    phones = [Phone(i + 1, a.host, a.port, a.code) for i in range(a.phones)]
++    for p in phones: p.out = a.pictures if p.n == 1 else None
 +    start = time.monotonic(); next_tick = start
 +    for p in phones: p.hello(); say(ev='join', phone=p.n, id=p.id)
 +    while time.monotonic() - start < a.seconds:
@@ -3085,6 +3623,7 @@ index 0000000..53093e8
 +            next_tick += 1 / 60
 +            on = ((time.monotonic() - start) % a.every) < a.every / 2
 +            for p in phones:
++                if p.sid and p.out: p.ask_pics(time.monotonic())
 +                if p.sid: p.state(BUTTONS[a.press] if on else 0, 1.0 if on else 0.0, start)
 +                elif p.reject not in ('code', 'version') and time.monotonic() - p.last_hello > 0.5: p.hello()
 +    for p in phones:
@@ -3147,10 +3686,10 @@ index 901c65a..ebcdd31 100644
  DM_RESOURCE_CHAIN_H	path	Path of `dm/gfx/nvn/dmsh_chain.h`, written to `Gen/resources.env` by `build_ipa.sh`; the Xcode copy phase (`stage_resources.sh`) stops when the prepared shaders are not of its chain version
 diff --git a/docs/wifi-controllers.md b/docs/wifi-controllers.md
 new file mode 100644
-index 0000000..1c2b159
+index 0000000..396bf63
 --- /dev/null
 +++ b/docs/wifi-controllers.md
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,135 @@
 +# Wi-Fi controllers and the Mac keyboard map
 +
 +On the Mac host, phones can be controllers over the local network, each one a player of its own, beside the keyboard and physical controllers: local multiplayer such as Mario Kart 8 Deluxe's four-player split screen with the keyboard as player 1 and three phones. The phone app is [dm/remote_pad](../dm/remote_pad/README.md) (Flutter, iOS and Android, Spanish interface). The keyboard's keys can be changed in a window of the game and are kept between runs.
@@ -3170,7 +3709,7 @@ index 0000000..1c2b159
 +2. On each phone, open **Mando NX**, type the Mac's IP address, the port and the code, and tap **Conectar**. The phone shows its player (**Jugador 2**), the link and its round-trip time. The phone and the Mac must be on the same network. iOS asks once for local network access; the app needs it.
 +3. **Salir** on the phone frees its player at once. A phone that goes quiet (locked, out of range) has its buttons released after 0.5 s and loses its player after 5 s; when it comes back it joins again by itself and gets the same player, unless another phone or controller took it meanwhile.
 +
-+`dm/tools/remote_phone.py --code <code> --phones 3` stands in for phones, to check a host without one.
++`dm/tools/remote_phone.py --code <code> --phones 3` stands in for phones, to check a host without one (`--pictures <folder>`: phone 1 also pulls the pictures a race names into that folder).
 +
 +## Host switches
 +
@@ -3204,6 +3743,7 @@ index 0000000..1c2b159
 +| `bye` | `sid` | leaving |
 +| `text` | `sid`, `ks` (the keyboard request it answers), `text` (at most 128 bytes, UTF-8), `ok` (1 typed, 0 cancelled) | the player answered the game's keyboard (`kbd`) |
 +| `icon` | `sid`, `off` (a multiple of 300) | asking for a piece of the game's icon (`info.isz` bytes, CRC `info.ih`): a few at a time, again after 400 ms without the piece |
++| `img` | `sid`, `im` (a picture's key, at most 32 of `A-Z a-z 0-9 _ /`: `crs/<course>`, `drv/<character>/<colour>`, `itm/<item>`), `off` (a multiple of 264) | asking for a piece of a picture the race names (`race.img`): offset 0 first, which brings the size; then a few at a time, again after 400 ms without it |
 +
 +`b` has NpadButton's bits (`dm/host/dm_input.h`): A 1, B 2, X 4, Y 8, left stick press 16, right stick press 32, L 64, R 128, ZL 256, ZR 512, + 1024, − 2048, D-pad left 4096, up 8192, right 16384, down 32768.
 +
@@ -3220,13 +3760,14 @@ index 0000000..1c2b159
 +| `roster` | `sid`, `rs` (ordered like `is`), `n1`…`n8` (who holds each player, only those held: `keyboard`, a controller's name, a phone's own name; at most 24 bytes) | once the phone streams, then on a change and every 3 s |
 +| `kbd` | `sid`, `ks` (the request), `max` (characters), `title`, `init` (the text it starts with); or `sid`, `ks`, `done` (1) | the game's keyboard is up on the Mac (every second until a phone answers); `done` when it was answered (by any phone or on the Mac) or closed, twice |
 +| `iconpart` | `sid`, `ih`, `off`, `d` (base64 of up to 300 bytes from `off`) | the answer to `icon` |
-+| `race` | `sid`, `cs` (ordered like `is`), `crs` (the course as the game files it, as `Gu_WaterPark`; empty in the menus or when unknown), and when known `pos` (place, 1 first), `lap` (1 first), `coin`; `drv`, `body`, `tire`, `wing` (the game's ids for the character and the kart's body, tires and glider, 0–63); `itm`, `itm2` (the item in each of the two slots, the game's item id, −1 empty) | on a game build with race data (below): once the phone streams, then on a change (at most every 100 ms) and every 2 s |
++| `imgpart` | `sid`, `im`, `ih` (the picture's CRC-32), `isz` (its size), `off`, `d` (base64 of up to 264 bytes from `off`); or `sid`, `im`, `isz` 0 when the host has no such picture | the answer to `img`; nothing while the host is still making it (the phone asks again) |
++| `race` | `sid`, `cs` (ordered like `is`), `crs` (the course as the game files it, as `Gu_WaterPark`; empty in the menus or when unknown), and when known `pos` (place, 1 first), `lap` (1 first), `coin`; `drv`, `dcl`, `body`, `tire`, `wing` (the game's ids for the character, its colour, and the kart's body, tires and glider, 0–63); `itm`, `itm2` (the item in each of the two slots, the game's item id, −1 empty); `img` 1 when the host makes this game's pictures (`img`) | on a game build with race data (below): once the phone streams, then on a change (at most every 100 ms) and every 2 s |
 +
-+`info.use` is what the game makes of the phone's player, from the npads it supports (`SetSupportedNpadIdType`, `hle_hid.c` `dm_hid_player_use`): `own` (the game reads that player's npad itself), `p1` (a one-player screen: the controller feeds player 1, as every controller does there), `off` (the game takes fewer players now: not used), `pause` (the game window is not key: released). `seats` is how many players the game takes now (Mario Kart 8 Deluxe: 4 for local play). These are general: nothing is read from a game's memory, so they hold for every game. `race` is the exception, and only on a game build listed in `remote_race.c`'s `k_race` (gated by main's build ID): the course is the folder of the course files the game opens (`hle_fs.c` `dm_fs_opened`), and place, lap and coins are read from the racer the player drives, the character and kart from that racer's kart model, found by their classes' vtables and checked on every read (Mario Kart 8 Deluxe 4.0.1: player n is racer n − 1; a phone a one-player screen merges into player 1 races as player 1). The items come from the item box on the screen, so only player 1 gets them, and only while the game shows one box (one player on the Mac); a slot whose roulette still turns counts as empty. The ids are the game's own: the order of its character and part lists (`drv` 0 Mario … 40 King Boo … 52; `body` 0 Standard Kart, 14 Standard Bike, 15 Comet…; `tire` 20 Leaf; `wing` 0 Super Glider) and of its item ids (0 banana, 1 green shell, 2 red shell, 3 mushroom … 15 coin … 22 Boo; the table from an id to the item box's icon is at main+0xf21e7c). The phone has the names. Other builds send no `race`. `rd` counts the game's own `GetNpadStates` / `GetNpadState` calls on that player's npad (`hle_hid.c` `dm_hid_reads`; player 1's for a phone a one-player screen merges into it). The icon is a JPEG thumbnail, at most 128 pixels a side (`remote_icon.c`, ImageIO), of `icon.jpg` beside the RomFS image (`DM_ROMFS`) or of `DM_REMOTE_ICON`. The game's keyboard (`hle_swkbd.c` → `front_text_input` in `front_mac.m`) asks every phone while its box is up; the first answer, from a phone or typed on the Mac, wins, and a phone's fills the box and closes it.
++`info.use` is what the game makes of the phone's player, from the npads it supports (`SetSupportedNpadIdType`, `hle_hid.c` `dm_hid_player_use`): `own` (the game reads that player's npad itself), `p1` (a one-player screen: the controller feeds player 1, as every controller does there), `off` (the game takes fewer players now: not used), `pause` (the game window is not key: released). `seats` is how many players the game takes now (Mario Kart 8 Deluxe: 4 for local play). These are general: nothing is read from a game's memory, so they hold for every game. `race` is the exception, and only on a game build listed in `remote_race.c`'s `k_race` (gated by main's build ID): the course is the folder of the course files the game opens (`hle_fs.c` `dm_fs_opened`), and place, lap and coins are read from the racer the player drives, the character and kart from that racer's kart model, found by their classes' vtables and checked on every read (Mario Kart 8 Deluxe 4.0.1: player n is racer n − 1; a phone a one-player screen merges into player 1 races as player 1). The items come from the item box on the screen, so only player 1 gets them, and only while the game shows one box (one player on the Mac); a slot whose roulette still turns counts as empty. The ids are the game's own: the order of its character and part lists (`drv` 0 Mario … 40 King Boo … 52; `body` 0 Standard Kart, 14 Standard Bike, 15 Comet…; `tire` 20 Leaf; `wing` 0 Super Glider) and of its item ids (0 banana, 1 green shell, 2 red shell, 3 mushroom … 15 coin … 22 Boo; the table from an id to the item box's icon is at main+0xf21e7c). The phone has the names. Pictures (`img`, `remote_images.c`) come from the player's own game files while the game runs, made on the first request by a worker thread and kept: the course's picture from the cup screen (`UI/cmn/menu/ym_CoursePict_<course>_00^u.bntx`, BC7 decoded on the GPU, cropped to its 16:9 part, 288 × 162, as JPEG), the character select's icon by character and colour (`UI/cmn/menu.sarc` `mn_L_CharaIcon_00.szs`, a 96-pixel PNG) and the item box's icon by item, the coin among them (`UI/cmn/race.sarc` `rc_L_ItemBox_00.szs`). Nothing of the game is in this repository or the patch: `remote_img.c` reads RomFS, Yaz0, SARC and BNTX (block-linear RGBA8 and BC7) at run time. Other builds send no `race`. `rd` counts the game's own `GetNpadStates` / `GetNpadState` calls on that player's npad (`hle_hid.c` `dm_hid_reads`; player 1's for a phone a one-player screen merges into it). The icon is a JPEG thumbnail, at most 128 pixels a side (`remote_icon.c`, ImageIO), of `icon.jpg` beside the RomFS image (`DM_ROMFS`) or of `DM_REMOTE_ICON`. The game's keyboard (`hle_swkbd.c` → `front_text_input` in `front_mac.m`) asks every phone while its box is up; the first answer, from a phone or typed on the Mac, wins, and a phone's fills the box and closes it.
 +
 +Ordering: the host takes a state only when its `seq` is newer than the last one taken (serial number arithmetic, so 0 follows 2³²−1); a late or repeated datagram is dropped, and a lost one is replaced by the next, which carries the whole state. The first state of a session is taken whatever its `seq`. Sticks: each axis is clamped to −1..1, then the pair to the unit circle, then scaled to ±32767; the app applies a 12 % dead zone before sending. The phone counts the host as gone after 2 s without an ack (it keeps sending and says hello again every second); after a `bye` with reason `host` it keeps trying every 2 s, so it joins again when the game is started again.
 +
-+Host side: `dm/host/remote_proto.h` and its parts (`remote_types.h`, `remote_json.h`, `remote_text.h`, `remote_session.h`, `remote_feed.h`, `remote_parse.h`, `remote_packet.h`, `remote_tick.h`: parsing, validation, sessions, the game's feed; no socket), `dm/host/remote_mac.c` (socket and thread), `remote_front.c` (the hooks into the slots, hid, haptics and the game's keyboard), `remote_icon.c` (the icon's thumbnail), `remote_race.c` (the course, place, lap, coins, character, kart and items). Phone side: `dm/remote_pad/lib/protocol/` and `lib/net/`.
++Host side: `dm/host/remote_proto.h` and its parts (`remote_types.h`, `remote_json.h`, `remote_text.h`, `remote_session.h`, `remote_feed.h`, `remote_parse.h`, `remote_packet.h`, `remote_tick.h`: parsing, validation, sessions, the game's feed; no socket), `dm/host/remote_mac.c` (socket and thread), `remote_front.c` (the hooks into the slots, hid, haptics and the game's keyboard), `remote_icon.c` (the icon's thumbnail), `remote_race.c` (the course, place, lap, coins, character, kart and items), `remote_images.c` with `remote_img.c` and `remote_img_mac.m` (the pictures). Phone side: `dm/remote_pad/lib/protocol/` and `lib/net/`.
 +
 +## Security
 +
@@ -3255,7 +3796,7 @@ index 0000000..1c2b159
 +
 +## Tests
 +
-+- `make -C dm/host/tests GAME=<id> remote` (also part of `run`): `t_remote` (parsing, validation, sticks, seq, sessions over a slot table shared with controllers: codes and their limit, players, release, timeout, rejoin, focus, bye, eight players), `t_remote_feed` (info with reading and the icon, roster, the game's keyboard asked and answered, icon pieces, base64 and CRC, race and its pace), `t_remote_race` (the course from the files opened, the racers, kart models and item boxes found by vtable on a fake heap, every check that turns data off), `t_kbd_map` (the built-in map is the old fixed one, files, round trip, modifiers), `t_remote_udp` (real datagrams on loopback through `remote_mac.c`'s thread to the npads `hle_hid.c` reports: three phones beside the keyboard in a four-player game; the feed: reading, roster, the icon made from a PNG, race, the keyboard answered by a phone).
++- `make -C dm/host/tests GAME=<id> remote` (also part of `run`): `t_remote` (parsing, validation, sticks, seq, sessions over a slot table shared with controllers: codes and their limit, players, release, timeout, rejoin, focus, bye, eight players), `t_remote_feed` (info with reading and the icon, roster, the game's keyboard asked and answered, icon pieces, base64 and CRC, race and its pace), `t_remote_race` (the course from the files opened, the racers, kart models and item boxes found by vtable on a fake heap, every check that turns data off), `t_remote_img` (pictures from a made-up RomFS folder: Yaz0, SARC, block-linear BNTX read back pixel for pixel, a BC7 block on the GPU, keys, colours, none), `t_kbd_map` (the built-in map is the old fixed one, files, round trip, modifiers), `t_remote_udp` (real datagrams on loopback through `remote_mac.c`'s thread to the npads `hle_hid.c` reports: three phones beside the keyboard in a four-player game; the feed: reading, roster, the icon made from a PNG, race, the keyboard answered by a phone).
 +- `cd dm/remote_pad && flutter analyze && flutter test`: the protocol, the client's join / heartbeat / seq / rejoin / pause on a fake clock and over a loopback socket, the layout on five screen sizes, multi-touch routing, the screens.
 +
 +## Limits
@@ -3279,7 +3820,7 @@ index 0000000..1c2b159
 +
 +### Game card
 +
-+From the host's `info`, the pad shows a card in its middle: the game's name, a light per player the game takes (the phone's own in its player colour, glowing while the game reads it; other players with a controller filled), and a line saying what the game makes of the phone: **El juego lee tu mando como Jugador N**, a one-player screen where it also moves player 1, a game taking fewer players (the phone waits), or a pause while the game window on the Mac is not in front. The phone gives a short vibration when the game takes its controller. In a race (`race`), the card also shows the course by its Spanish name, the place, the lap and the coins, and below them the character, the kart (body, tires, glider) and the items held, by the names the game shows in Spanish (the items, which the game shows only as icons, by their usual Spanish names). The offline demo shows the card with a demo game.
++From the host's `info`, the pad shows a card in its middle: the game's name, a light per player the game takes (the phone's own in its player colour, glowing while the game reads it; other players with a controller filled), and a line saying what the game makes of the phone: **El juego lee tu mando como Jugador N**, a one-player screen where it also moves player 1, a game taking fewer players (the phone waits), or a pause while the game window on the Mac is not in front. The phone gives a short vibration when the game takes its controller. In a race (`race`), the card also shows the course by its Spanish name, the place, the lap and the coins, and below them the character, the kart (body, tires, glider) and the items held, by the names the game shows in Spanish (the items, which the game shows only as icons, by their usual Spanish names). With the host's pictures, the course's picture fills the screen between the controls, the character's face rides the stick's knob, the held item takes L's place (the button that uses it) and the coin has the game's icon. The offline demo shows the card with a demo game.
 +
 +### Visible motion switch
 +

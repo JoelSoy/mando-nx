@@ -1,12 +1,13 @@
 // The phone's side of a session: hello until a welcome, then the whole state every tick (the heartbeat), sequence numbers, rejoin after a kick or a silent host.
 // No timers of its own: the pad screen calls tick() about 60 times a second (17 ms) with the clock in ms, so tests drive it with a fake clock and a fake transport.
-// The game's feed (rumble, info, roster, keyboard, icon) is game_feed.dart.
+// The game's feed (rumble, info, roster, keyboard, icon) is game_feed.dart; the game's pictures, game_images.dart.
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import '../protocol.dart';
 import 'game_feed.dart';
+import 'game_images.dart';
 import 'transport.dart';
 
 part 'remote_client_rx.dart';
@@ -20,7 +21,7 @@ enum LinkStatus {
   closed, // left
 }
 
-class RemoteClient extends ChangeNotifier with GameFeed {
+class RemoteClient extends ChangeNotifier with GameFeed, GameImages {
   RemoteClient({
     required this.transport,
     required this.code,

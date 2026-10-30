@@ -1,11 +1,13 @@
 // The pad's kept preferences (storage/settings.dart writes them with the rest).
 import '../pad/config.dart';
+import '../visual_style.dart';
 
 /// The pad's preferences, kept between runs: the layout in use, the player's own saved layouts (at most maxSaved), tilt steering (its sensitivity, the gyroscope when
 /// the phone has one), game rumble and touch feedback.
 class PadPrefs {
   PadPrefs({
     this.tilt = false,
+    this.style = VisualStyle.console,
     this.sensitivity = 1.6,
     this.gameRumble = true,
     this.touchFeedback = true,
@@ -15,6 +17,7 @@ class PadPrefs {
   }) : layout = layout ?? PadConfig.classic,
        saved = saved ?? [];
   static const maxSaved = 6;
+  VisualStyle style;
   bool tilt, gameRumble, touchFeedback, useGyro;
   double sensitivity;
   PadConfig layout;
@@ -40,6 +43,7 @@ class PadPrefs {
   }
 
   Map<String, Object> toJson() => {
+    'style': style.name,
     'tilt': tilt,
     'sensitivity': sensitivity,
     'gameRumble': gameRumble,
@@ -68,6 +72,7 @@ class PadPrefs {
           : saved.where((s) => s.name == c.name).firstOrNull ?? c;
     }
     return PadPrefs(
+      style: readVisualStyle(j['style']),
       tilt: flag('tilt', false),
       sensitivity: sens is num && sens.isFinite
           ? sens.toDouble().clamp(0.5, 3.0)

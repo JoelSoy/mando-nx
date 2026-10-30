@@ -1,6 +1,6 @@
 // What the app remembers (the Mac's address, port, code, name; the pad's layout, the player's saved layouts, tilt, sensitivity and vibration) and this installation's
 // client id, as a small JSON file in the app's own storage. No plugin:
-// iOS gives the app a HOME of its own (its sandbox: Library/Application Support is kept and backed up); Android's temporary folder is the app's cache folder, whose parent is
+// iOS's temporary folder is inside its sandbox (Library/Application Support is kept and backed up); Android's temporary folder is the app's cache folder, whose parent is
 // the app's private data folder (files/ beside it is kept). When neither is found the settings live only as long as the app runs.
 import 'dart:convert';
 import 'dart:io';
@@ -58,7 +58,12 @@ class SettingsStore {
   static Directory? platformDir() {
     try {
       Directory? d;
-      if (Platform.isIOS || Platform.isMacOS) {
+      if (Platform.isIOS) {
+        // iOS does not always expose HOME to Dart. Its temporary directory is inside the app container.
+        d = Directory(
+          '${Directory.systemTemp.parent.path}/Library/Application Support',
+        );
+      } else if (Platform.isMacOS) {
         final home = Platform.environment['HOME'];
         if (home != null && home.isNotEmpty) {
           d = Directory('$home/Library/Application Support');

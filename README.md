@@ -8,7 +8,7 @@ Tu teléfono como mando, por Wi‑Fi, de los juegos de Nintendo Switch que corre
 
 - **Botones a tu medida:** mueve y cambia el tamaño de cada botón, elige entre los diseños Clásico, Mario Kart, Zurdo y Grande, o guarda los tuyos.
 - **El juego en el teléfono:** su ícono y nombre, **quién juega** en cada puesto, un punto que late mientras **el juego te está leyendo**, y **escribir desde el teléfono** cuando el juego pide un texto.
-- **La carrera en el teléfono** (Mario Kart 8 Deluxe 4.0.1): la pista con su nombre en español, tu posición, la vuelta y las monedas, tu personaje y tu kart, y los objetos que llevas.
+- **La carrera en el teléfono** (Mario Kart 8 Deluxe 4.0.1): la pista con su nombre en español, tu posición, la vuelta y las monedas, tu personaje y tu kart, y los objetos que llevas, con las imágenes del propio juego (la foto de la pista, la cara del personaje, la moneda y los objetos), que el Mac saca de tu copia mientras juegas.
 - **Volante con giroscopio** cuando el teléfono lo tiene (más preciso), con el acelerómetro corrigiéndolo.
 - **App Flutter (iOS y Android, en español):** mando táctil apaisado con joystick flotante, A B X Y, L R ZL ZR, + −, cruceta y varios dedos a la vez. Conexión por **QR** o a mano (IP, puerto, código), **volante por inclinación** (acelerómetro, con calibración y sensibilidad), **vibración real del juego** y un modo **Probar mando** sin conexión.
 - **Tarjeta del juego en el mando:** el nombre del juego, una luz por cada jugador que admite la partida y lo que el juego hace con tu mando: si lo lee como tu propio jugador, si estás en una pantalla de 1 jugador, si espera turno o si el juego está en pausa.

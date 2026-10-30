@@ -87,19 +87,34 @@ class RaceInfo extends HostMessage {
     this.lap,
     this.coins,
     this.driver,
+    this.color = 0,
     this.body,
     this.tires,
     this.glider,
     this.item,
     this.item2,
+    this.pictures = false,
   });
   final String sid, course;
   final int seq;
   final int? place, lap, coins;
   final int? driver, body, tires, glider; // the game's ids for the character and the kart's parts (games/mk8_*.dart)
+  final int
+  color; // the character's colour (Yoshi, Shy Guy, Birdo, the Inklings)
+  final bool
+  pictures; // the host makes pictures of these (ImagePart): see the keys below
   final int? item, item2; // the two item slots: the game's item id, -1 empty; null when not known
   bool get racing => place != null;
   bool get hasKart => driver != null;
+
+  /// The keys of this race's pictures (null where there is none to ask for)
+  String? get coursePicture =>
+      pictures && course.isNotEmpty ? 'crs/$course' : null;
+  String? get driverPicture =>
+      pictures && driver != null ? 'drv/$driver/$color' : null;
+  String? itemPicture(int? id) =>
+      pictures && id != null && id >= 0 ? 'itm/$id' : null;
+  String? get coinPicture => pictures ? 'itm/15' : null;
 }
 
 /// kbd: the game's keyboard waits for text (title, initial text, at most max characters), or (done) the request id is over: answered or closed on the Mac.
@@ -122,5 +137,21 @@ class IconPart extends HostMessage {
   const IconPart(this.sid, this.hash, this.off, this.bytes);
   final String sid, hash;
   final int off;
+  final Uint8List bytes;
+}
+
+/// imgpart: bytes of the picture key names (a course's picture, a character's or an item's icon), from off; hash and size say which picture, size 0 that the host
+/// has none.
+class ImagePart extends HostMessage {
+  const ImagePart(
+    this.sid,
+    this.key,
+    this.hash,
+    this.size,
+    this.off,
+    this.bytes,
+  );
+  final String sid, key, hash;
+  final int size, off;
   final Uint8List bytes;
 }

@@ -55,3 +55,11 @@ String encodeText(String sid, int ks, String text, bool ok) => jsonEncode({
 
 String encodeIconRequest(String sid, int off) =>
     jsonEncode({'v': protocolVersion, 't': 'icon', 'sid': sid, 'off': off});
+
+String encodeImageRequest(String sid, String key, int off) => jsonEncode({
+  'v': protocolVersion,
+  't': 'img',
+  'sid': sid,
+  'im': key,
+  'off': off,
+});

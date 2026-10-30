@@ -77,15 +77,21 @@ class PlayerPill extends StatelessWidget {
     key: const Key('player'),
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
     decoration: BoxDecoration(
-      color: player != null ? color : Colors.white12,
+      color: const Color(0xFF2B323C),
+      border: Border.all(
+        color: player != null ? color.withValues(alpha: .85) : Colors.white24,
+      ),
+      boxShadow: const [
+        BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 2)),
+      ],
       borderRadius: BorderRadius.circular(14),
     ),
     child: Text(
       player != null ? 'Jugador $player' : 'Sin jugador',
       style: TextStyle(
-        color: player == 3 ? Colors.black : Colors.white,
+        color: Colors.white,
         fontWeight: FontWeight.bold,
-        fontSize: 16,
+        fontSize: 14,
       ),
     ),
   );

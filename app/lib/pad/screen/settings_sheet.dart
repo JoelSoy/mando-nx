@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../../client.dart';
+import '../../gamer_theme.dart';
 import '../../motion/steering.dart';
 import '../../pad_layout.dart';
 import '../../storage.dart';
@@ -38,6 +39,26 @@ void showPadSettings(BuildContext context, PadSettingsHost h) {
                   "AJUSTES DE MANDO",
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                 ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Estilo visual',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final style in VisualStyle.values)
+                    ChoiceChip(
+                      key: Key('skin-${style.name}'),
+                      label: Text(visualStyleNames[style]!),
+                      selected: h.prefs.style == style,
+                      onSelected: (_) => update(() {
+                        h.prefs.style = style;
+                        h.saved();
+                      }),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
               const Text(

@@ -71,6 +71,20 @@ Hallazgos del 2026-10-29 y 2026-10-30 sobre MK8D 4.0.1 (build de `main` `2452C49
 - Comprobados en pantalla: plátano (0), caparazón verde (1), caparazón rojo (2), champiñón (3) y moneda (15). El resto sale de la tabla del juego.
 - Límite: es la casilla de la pantalla, no la del corredor. Con varios jugadores locales hay una por jugador y no se sabe cuál es de quién, así que el Mac solo la manda con un jugador. La casilla propia de cada corredor no apareció (no es un int32 simple).
 
+## Imágenes (sin ingeniería inversa)
+
+Los archivos del juego tienen todo lo necesario; el Mac los lee mientras juegas (`remote_images.c`, `remote_img.c`) y no se guarda nada en el repositorio:
+
+| Imagen | Dónde está | Formato |
+|---|---|---|
+| Foto de la pista | `UI/cmn/menu/ym_CoursePict_<carpeta>_00^u.bntx` | BC7, 304 × 256; la foto está en (8, 29), 288 × 162 |
+| Cara del personaje | `UI/cmn/menu.sarc` → `mn_L_CharaIcon_00.szs` → `tc_Chara_<nombre>^l` (o `…<nombre>NN^l` por color: Yoshi, Shy Guy, Birdo, Inklings) | RGBA8, 128 × 128 |
+| Objetos y moneda | `UI/cmn/race.sarc` → `rc_L_ItemBox_00.szs` → `tc_Item_<nombre>^l` | RGBA8, 192 × 192 |
+
+- Las texturas BNTX están en el orden de memoria de la Switch (*block-linear*: bloques de 64 bytes × 8 filas). El Mac las reordena, decodifica BC7 con la GPU (Metal) y las manda como PNG o JPEG pequeños por el protocolo (`img` / `imgpart`).
+- El color del personaje es `+0x0c` del modelo del kart.
+- Las pistas del Pase están en el RomFS del DLC; todavía no se leen.
+
 ## Herramienta: `DM_CTL scan` (nxnative `dm/host/hle_scan.c`)
 
 Busca valores en la memoria del juego mientras corre, sin volcar a disco.
@@ -94,7 +108,7 @@ Busca valores en la memoria del juego mientras corre, sin volcar a disco.
 Implementado:
 
 - **Host:** `remote_race.c`, más los hooks en `hle_fs.c` (`dm_fs_opened`) y `hle_svc.c` (`dm_guest_heap`). Envía el mensaje `race` con `crs`, `pos`, `lap`, `coin`, `drv`, `body`, `tire`, `wing`, `itm` e `itm2`. Lo cubren `t_remote_feed`, `t_remote_race` y `t_remote_udp`.
-- **App:** `RaceInfo`, `games/courses.dart`, `games/mk8_racers.dart`, `games/mk8_karts.dart` y las dos líneas de carrera en la tarjeta del juego.
+- **App:** `RaceInfo`, `games/courses.dart`, `games/mk8_racers.dart`, `games/mk8_karts.dart`, los indicadores de carrera y las imágenes (`net/game_images.dart`).
 - **Verificado con el juego real:** un teléfono simulado (`remote_phone.py`) recibió la pista, la posición, la vuelta, las monedas, Rey Boo con su kart, y el champiñón (`itm` 3) mientras estaba en la casilla y −1 al usarlo, y coincidieron con capturas.
 
 Pendiente:
