@@ -148,6 +148,7 @@ mixin _PadView on _PadInput {
                           info: client.info!,
                           roster: client.roster,
                           icon: client.icon,
+                          race: client.race,
                         ),
                       ),
                     ),

@@ -1,4 +1,4 @@
-// The game's feed on the phone: game rumble, info (with the icon's CRC and size), the roster, the game's keyboard, and the icon, pulled in pieces. Each is taken only
+// The game's feed on the phone: game rumble, info (with the icon's CRC and size), the roster, the race, the game's keyboard, and the icon, pulled in pieces. Each is taken only
 // for the current session and in order (a sequence number; an older or repeated one is dropped). The icon is pulled with a few requests in flight, a piece asked
 // again when it does not come within iconRetryMs, and kept by its CRC for the next session.
 
@@ -17,10 +17,11 @@ mixin GameFeed on ChangeNotifier {
   void Function(double, double, int) rumbleSink = (i, s, ms) {};
   GameInfo? info;
   Roster? roster;
+  RaceInfo? race; // the race this player is in; null in the menus, or a game without race data
   KeyboardRequest?
   keyboard; // the game's keyboard waiting for this phone's text
   Uint8List? icon; // the game's icon (JPEG) once complete
-  int? _rumbleSeq, _infoSeq, _rosterSeq, _answeredKs;
+  int? _rumbleSeq, _infoSeq, _rosterSeq, _raceSeq, _answeredKs;
   String? _iconHash; // of icon, or of the one being pulled
   Uint8List? _iconBuf;
   final Map<int, int> _asked = {}; // icon offset → when asked
@@ -33,9 +34,10 @@ mixin GameFeed on ChangeNotifier {
   }
 
   void resetFeed() {
-    _rumbleSeq = _infoSeq = _rosterSeq = null;
+    _rumbleSeq = _infoSeq = _rosterSeq = _raceSeq = null;
     info = null;
     roster = null;
+    race = null;
     keyboard = null;
     _asked.clear();
     if (icon == null) _iconHash = null;
@@ -62,6 +64,10 @@ mixin GameFeed on ChangeNotifier {
         if (m.sid != sessionId || !newer(_rosterSeq, m.seq)) return false;
         _rosterSeq = m.seq;
         roster = m;
+      case RaceInfo():
+        if (m.sid != sessionId || !newer(_raceSeq, m.seq)) return false;
+        _raceSeq = m.seq;
+        race = m.course.isEmpty && !m.racing ? null : m;
       case KeyboardRequest():
         if (m.sid != sessionId) return false;
         if (m.done) {

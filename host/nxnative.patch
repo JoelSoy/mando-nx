@@ -10,8 +10,21 @@ index ca6b541..735b603 100644
  - **On the Mac**, a game's app starts with the settings it was tested with. To choose others before it starts (frame rate, console mode, upscaling, …), start it from [NX2Apple](https://github.com/LNPANDY/NX2Apple)'s library, or put lines like `DM_FPS_TARGET=30` in `~/Library/Application Support/nxnative/<title ID>/env.txt`. Its log is `~/Library/Logs/nxnative/<title ID>.log`.
  - **Saves and logs** are in the Files app, under the app's name: `save/` and `log.txt`. When something goes wrong, send `log.txt` (the previous run is `log.prev.txt`).
  - **Short stutters** the first time a new scene appears are normal: the app compiles graphics for it once and remembers them for the next launch. What it remembered, and what the game's list names, is built before the game starts, behind "Preparing shaders" and a progress bar when that takes more than half a second.
+diff --git a/dm/games/0100152000022000/README.md b/dm/games/0100152000022000/README.md
+index a72f7ee..a2bd955 100644
+--- a/dm/games/0100152000022000/README.md
++++ b/dm/games/0100152000022000/README.md
+@@ -57,6 +57,8 @@ The game builds Mii heads from the console's MiiModel system data, starting at b
+ - The work folder's `run/ctl.sh` drives a run started with `DM_CTL`.
+ - `run/race.sh` boots from a copy of a save past the Mii pick into a 50cc Grand Prix (Mario, Mushroom Cup) with frame-timed keys and holds accelerate: `DM_KEYS=f960:L+R~0.3,f1260:A,f1500:A,f1740:A,f2000:A,f2240:A,f2400:A,f2560:A,f2800:A,f3040:A,f4300:A~70`.
+ - From a fresh save, L+R at the title opens "Select a Mii" (Right, A takes the first default Mii).
++- A `DM_CTL` run with a window pauses the game whenever the window is not key (focus state 2: presses are ignored); drive it headless (`DM_WINDOW` unset), where `shot` still works. In the kart screen, L and R toggle smart steering and auto-accelerate, so a held race drives itself.
++- Race data (4.0.1, `remote_race.c`): a race opens `Course/<name>/` (`Gu_Menu` behind the menus). One object of class main+0x125ada8 holds a `sead::PtrArray` of the racers at +0x60 / +0x68, player 1 first; a racer (class main+0x12cac28) has its index at +0x38, its 0-based place at +0x40, 0-based lap at +0x44 and coins at +0x50. Found with `DM_CTL scan` (`hle_scan.c`: `scan i32 1 10`, `scan rec` with a `shot` after each, `scan match` against the shots; `scan ptr64` for the owners) in two races of a 50cc cup; the objects lived across the cup's races. A kart model (class main+0x125a288, one per racer, made in racer order in each kart's own heap; it names `Driver/<name>.bfres`, `Kart/Body/…`, `Kart/Tire/…`, `Kart/Wing/…`) has the character at +0x8 (its colour at +0xc), body +0x14, glider +0x18, tires +0x20; the ids follow the menus' part lists (`Mario` … `Pauline`, `K_Std` …, `T_Std` …, `G_Std` …, built on the heap as name and label tables), and `Driver/DrvChr0N` is character 43 + N (Birdo 44 … Pauline 51). The item box (class main+0x127e110, one object while one player races) has its two slots' states at +0x200 (3 holding, 2 roulette, 0 empty) and items at +0x210; item ids are the index of the u8 table at main+0xf21e7c (id → frame of the box's `ItemPtn` icon animation in `UI/cmn/race.sarc` `rc_L_ItemBox_00`: 0 banana, 1 green shell, 2 red shell, 3 mushroom, 15 coin checked on screen). The racers' own item slots were not found (not plain int32). `DM_CTL scan seq i32 <max stride> <ids…>` found the per-racer arrays from the line-up the results screen shows.
+ 
+ ## Found on this game
+ 
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 410b6ce..13b781f 100644
+index 410b6ce..a489764 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -16,7 +16,7 @@ endif
@@ -19,7 +32,7 @@ index 410b6ce..13b781f 100644
  CFLAGS=-O1 -g -Wall -Wno-unused-function
  # Service-layer takeover hle_*.c files are included by wildcard: adding a file does not touch this line (avoids merge conflicts)
 -SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
-+SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controls_mac.m remote_mac.c remote_front.c remote_icon.c entry.S
++SRC=main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controls_mac.m remote_mac.c remote_front.c remote_icon.c remote_race.c entry.S
  # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)
  # Sources under dm/gfx, dm/gfx/nvn, dm/gfx/tex, dm/gfx/vk and dm/gfx/gl are included by wildcard (tests/ and metal/ do not go into the host): adding a file does not touch this line
  GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S ../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))
@@ -500,11 +513,56 @@ index 18951a1..a5dbf8f 100644
          NSArray<DmRumbleChannel *> *out = channels[s.player];
  #if !TARGET_OS_IPHONE
          if ([out.firstObject isKindOfClass:DmDs4Channel.class]) { ds4_apply(s); return; }
+diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
+index 26da5c0..48b5e32 100644
+--- a/dm/host/hle_fs.c
++++ b/dm/host/hle_fs.c
+@@ -694,6 +694,7 @@ HLE_FORCE("_ZN2nn2fs14CommitSaveDataEPKc", "fsp-srv; same as Commit (SDK 11's ol
+ HLE_FORCE("_ZN2nn2fs7UnmountEPKc", "fsp-srv; the mount table is permanent, unmounting is a no-op", void, h_fs_Unmount, const char *name) { (void)name; }
+ 
+ // ---------- Files ----------
++void (*dm_fs_opened)(const char *path);   // the Wi-Fi controllers' race data (remote_race.c) follows the courses the game opens; NULL: nobody listens
+ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Result, h_fs_OpenFile, uint64_t *out, const char *path, int mode) {
+     int mi; int64_t k;
+     if (img_path(path, &mi, &k)) {
+@@ -702,6 +703,7 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
+         if (mode & (MODE_WRITE | MODE_APPEND)) { LOG("fs write to a read-only mount: %s", path); return RES_FAIL; }
+         *out = IMG_HANDLE(mi, k);
+         if (g_flag.fs) LOG("fs open [%.2fs] %s mode=%d → image entry %lld", (now_ns() - g_t0_ns) / 1e9, path, mode, (long long)k);
++        if (dm_fs_opened) dm_fs_opened(path);
+         return RES_OK;
+     }
+     HP(path);
+@@ -718,6 +720,7 @@ HLE_FORCE("_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", "fsp-srv → open(2)", Re
+     fslog_init();
+     if (g_fslog && fd < 4096) { pthread_mutex_lock(&g_fslog_lock); free(g_fdpath[fd]); g_fdpath[fd] = strdup(path); pthread_mutex_unlock(&g_fslog_lock); }
+     if (g_flag.fs) LOG("fs open [%.2fs] %s mode=%d → fd %d", (now_ns() - g_t0_ns) / 1e9, path, mode, fd);
++    if (dm_fs_opened) dm_fs_opened(path);
+     return RES_OK;
+ }
+ HLE_FORCE("_ZN2nn2fs8ReadFileEPmNS0_10FileHandleElPvm", "fsp-srv → pread(2)", Result, h_fs_ReadFile, size_t *out, uint64_t h, int64_t off, void *buf, size_t sz) {
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 148fdb3..9fb5be0 100644
+index 148fdb3..0f269d1 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -198,6 +198,16 @@ static uint32_t unsupported_players(void) {
+@@ -134,7 +134,7 @@ void hid_keys_init(void) {
+ //   to a file (a buffer texture's storage, which the pass dump's tbuf lines print, holds what the GPU wrote: buffer textures are views of the pool), "texlist <NVN target>" logs the
+ //   registered textures of that target (2 = 3D) with storage address and block-linear layout (nvn_mtl.m dm_gfx_texlist), "texraw <serial> <path>"
+ //   saves a host texture's level 0 raw (nvn_mtl.m dm_gfx_texraw), "drag <x0> <y0> <x1> <y1> [seconds=0.3]" moves one finger in a straight line between the two normalized picture
+-//   points over that time and lifts it (the touch screen's pans and swipes, hle_touch.c gesture_sample), "#…" is ignored.
++//   points over that time and lifts it (the touch screen's pans and swipes, hle_touch.c gesture_sample), "scan …" searches guest memory for a value (hle_scan.c), "#…" is ignored.
+ //   Look at a screen, decide, press, look again: menus whose timing moves from run to run (loading) need no blind timed script
+ static void *ctl_main(void *arg) {
+     const char *path = arg; long off = 0; char line[1100];
+@@ -151,6 +151,7 @@ static void *ctl_main(void *arg) {
+                 if (!strncmp(line, "peek ", 5)) { void dm_ctl_peek(uint64_t a, int n); char *e2; uint64_t a = strtoull(line + 5, &e2, 16); dm_ctl_peek(a, (int)strtol(e2, NULL, 0)); continue; }
+                 if (!strncmp(line, "memdump ", 8)) { void dm_ctl_memdump(uint64_t a, uint64_t n, const char *path); char *e2, *e3; uint64_t a = strtoull(line + 8, &e2, 16), n = strtoull(e2, &e3, 0);
+                                                      while (*e3 == ' ') e3++; dm_ctl_memdump(a, n, e3); continue; }
++                if (!strncmp(line, "scan ", 5)) { void dm_ctl_scan(const char *args); dm_ctl_scan(line + 5); continue; }
+                 if (!strncmp(line, "cvari ", 6)) { void dm_ctl_cvar_i32(uint64_t off, int32_t v); char *e2; uint64_t off = strtoull(line + 6, &e2, 16); dm_ctl_cvar_i32(off, (int32_t)strtol(e2, NULL, 0)); continue; }
+                 if (!strncmp(line, "cvarf ", 6)) { void dm_ctl_cvar_f32(uint64_t off, float v); char *e2; uint64_t off = strtoull(line + 6, &e2, 16); dm_ctl_cvar_f32(off, strtof(e2, NULL)); continue; }
+                 if (!strncmp(line, "env ", 4)) { char *eq = strchr(line + 4, '='); if (eq) { *eq = 0; setenv(line + 4, eq + 1, 1); LOG("DM_CTL: env %s=%s", line + 4, eq + 1); } continue; }
+@@ -198,6 +199,16 @@ static uint32_t unsupported_players(void) {
  }
  static int one_player(void) { return !(atomic_load(&g_ids_supported) & ((1u << DM_PLAYERS) - 2)); }
  static uint32_t merged_players(void) { return one_player() ? unsupported_players() : 0; }
@@ -521,7 +579,7 @@ index 148fdb3..9fb5be0 100644
  static int player_of(uint32_t id) {   // the reported player on npad id; -1 when none
      if (id == connected_id()) return 0;
      return id > 0 && id < DM_PLAYERS && reported((int)id) ? (int)id : -1;
-@@ -262,8 +272,10 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+@@ -262,8 +273,10 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
  // 16-entry history is always full, and games read all of it whatever count comes back: Super Mario Odyssey (main+0x93fc20) polls every controller slot each frame, which advances
  // the shared sampling number by about 16 per frame, and with only entry 0 written neither stick did anything in play (the camera did not turn at its first hint) while buttons
  // and menus (the stick's direction bits) worked; with every entry written the camera turns
@@ -532,7 +590,7 @@ index 148fdb3..9fb5be0 100644
      fill(out, id, style);
      for (int i = 1; i < n; i++) { out[i] = out[0]; out[i].sampling = out[0].sampling - i; }
      return n;
-@@ -517,11 +529,11 @@ HLE_FORCE("_ZN2nn3kpr13GetKeyCodeMapEPNS0_10KeyCodeMapE", "keyboard layout key c
+@@ -517,11 +530,11 @@ HLE_FORCE("_ZN2nn3kpr13GetKeyCodeMapEPNS0_10KeyCodeMapE", "keyboard layout key c
  
  // ---------- SDK 12 interfaces (Engage): single GetNpadState, mode queries / setters, touch screen, gestures, six-axis details, controller colors, etc. ----------
  // In the original all of these read hid shared memory or go through the hid service; the host has no shared memory and answers from the same front-end state as above. Library functions that only modify the game's own buffers (vibration file parse / generate, ControllerSupportArg SetDefault / SetExplainText) keep running in the SDK
@@ -549,6 +607,224 @@ index 148fdb3..9fb5be0 100644
  
  static uint32_t g_comm_mode, g_hh_mode;
  HLE_FORCE("_ZN2nn3hid18GetNpadJoyHoldTypeEv", "Joy-Con hold orientation: returns the value that was set", int, h_hid_GetHold, void) { return (int)g_hold_type; }
+diff --git a/dm/host/hle_scan.c b/dm/host/hle_scan.c
+new file mode 100644
+index 0000000..4f0fb3e
+--- /dev/null
++++ b/dm/host/hle_scan.c
+@@ -0,0 +1,199 @@
++// DM_CTL "scan …" (hle_hid.c ctl_main): a memory search over the guest address block and the game's modules, for finding where a game keeps a value it shows (coins, laps,
++// a position) and the pointers that lead to it. It reads a host page at a time through vm_read (pages that cannot be read are skipped) and keeps the matching places:
++//   "scan u8|u16|u32|i32|f32 <value> [<max>]"  new search: every aligned place holding the value (or a value up to max)
++//   "scan = <value>" / "scan != <value>"  keep the places that hold the value now / that do not
++//   "scan changed" / "scan same"       keep those whose value changed / stayed since the previous step
++//   "scan rec"                         record every place's value now as the next column (up to 64; values above 255 count as 255), keeping them all
++//   "scan match <c>=<v> <c>==<d> <c><><d> …"  keep the places whose column c held v / whose columns c and d were equal / differed
++//   "scan ptr <address> <span>"        new search: every aligned 32-bit word holding a pointer into [address - span, address] (a 32-bit game: the address is a guest one)
++//   "scan ptr64 <address> <span>"      the same for 64-bit pointers (a 64-bit game's guest addresses are host addresses)
++//   "scan list [n]"                    log the first n places (32 by default) with their values and recorded columns; a place in a module is named module+offset
++//   "scan seq <type> <max stride> <v0> <v1> …"  new search: places holding v0 where, for a stride up to max (hex), each next record holds the next value (an array of
++//                                      per-racer records found by what they hold, as the racers' character ids in race order); logs each hit's stride
++// rec then match takes the decision out of the race with the screen: a shot right after each rec shows what the value was, and the columns are matched afterwards (a value
++// that changes during a live filter otherwise loses the place). Addresses are hex host addresses, as "peek" and "memdump" take them
++#include "hle.h"
++#include <mach/mach.h>
++#include <math.h>
++
++void dm_guest_block(uint8_t **base, size_t *size);   // hle_svc.c
++enum { T_U8, T_U16, T_U32, T_I32, T_F32, T_PTR, T_P64 };
++static const char *const k_types[] = {"u8", "u16", "u32", "i32", "f32", "ptr", "ptr64"};
++#define PAGE 0x4000u
++#define MAX_HITS (48u << 20)
++#define COLS 64
++static uint64_t *g_at, *g_old; static size_t g_n, g_cap;   // the places (host addresses, ascending within a region) and their values at the last step
++static uint8_t *g_hist; static int g_cols, g_type = -1;   // recorded columns, COLS bytes a place (allocated at the first rec); the search's type
++static uint8_t g_page[PAGE], g_win[2 * PAGE];   // a page read; seq's window of two
++
++static int width(int t) { return t == T_U8 ? 1 : t == T_U16 ? 2 : t == T_P64 ? 8 : 4; }
++static uint64_t load(const uint8_t *p, int t) { uint64_t v = 0; memcpy(&v, p, (size_t)width(t)); return v; }
++static double num(uint64_t raw, int t) {
++    if (t == T_F32) { float f; uint32_t r = (uint32_t)raw; memcpy(&f, &r, 4); return f; }
++    return t == T_I32 ? (double)(int32_t)raw : (double)raw;
++}
++static int within(uint64_t raw, double lo, double hi, int t) {
++    double v = num(raw, t), tol = t == T_F32 ? 1e-3 * fmax(1.0, fabs(lo)) : 0;
++    return v >= lo - tol && v <= hi + tol;
++}
++static uint8_t small(uint64_t raw, int t) { double v = num(raw, t); return v < 0 || v > 255 ? 255 : (uint8_t)v; }
++static int read_page(uint64_t a) {
++    vm_size_t got = 0;
++    return vm_read_overwrite(mach_task_self(), (vm_address_t)a, PAGE, (vm_address_t)g_page, &got) == KERN_SUCCESS && got == PAGE;
++}
++static int keep(uint64_t at, uint64_t v) {
++    if (g_n == g_cap) {
++        if (g_cap >= MAX_HITS) return 0;
++        g_cap = g_cap ? g_cap * 2 : 1u << 16;
++        g_at = realloc(g_at, g_cap * sizeof *g_at); g_old = realloc(g_old, g_cap * sizeof *g_old);
++        if (!g_at || !g_old) die("scan: out of memory");
++    }
++    g_at[g_n] = at; g_old[g_n++] = v; return 1;
++}
++static void move_row(size_t to, size_t from) {
++    g_at[to] = g_at[from]; g_old[to] = g_old[from];
++    if (g_hist && to != from) memcpy(g_hist + to * COLS, g_hist + from * COLS, COLS);
++}
++// The regions searched: the guest block, then each module's image (page-aligned)
++static int region(int r, uint64_t *lo, uint64_t *hi) {
++    if (r == 0) { uint8_t *b; size_t s; dm_guest_block(&b, &s); *lo = (uint64_t)(uintptr_t)b; *hi = *lo + s; return 1; }
++    if (r - 1 >= g_nmod) return 0;
++    *lo = (uint64_t)(uintptr_t)g_mod[r - 1].base & ~(uint64_t)(PAGE - 1); *hi = (uint64_t)(uintptr_t)g_mod[r - 1].base + g_mod[r - 1].size; return 1;
++}
++static void name(uint64_t a, char *out, size_t n) {
++    for (int i = 0; i < g_nmod; i++) { uint64_t b = (uint64_t)(uintptr_t)g_mod[i].base; if (a >= b && a < b + g_mod[i].size) { snprintf(out, n, "%s+%#llx", g_mod[i].name, (unsigned long long)(a - b)); return; } }
++    uint64_t lo, hi; region(0, &lo, &hi); snprintf(out, n, "block+%#llx", (unsigned long long)(a - lo));
++}
++
++// A new search: values in lo..hi (for the pointer types, the pointer range)
++static void search(int t, double lo, double hi) {
++    g_n = 0; g_type = t; g_cols = 0; free(g_hist); g_hist = NULL;
++    int w = width(t), full = 0; uint64_t pages = 0, a, end;
++    for (int r = 0; region(r, &a, &end) && !full; r++)
++        for (; a + PAGE <= end && !full; a += PAGE) {
++            if (!read_page(a)) continue;
++            pages++;
++            for (unsigned i = 0; i + (unsigned)w <= PAGE; i += (unsigned)w) {
++                uint64_t v = load(g_page + i, t);
++                int hit = t == T_PTR || t == T_P64 ? v >= (uint64_t)lo && v <= (uint64_t)hi : within(v, lo, hi, t);
++                if (hit && !keep(a + i, v)) { full = 1; break; }
++            }
++        }
++    LOG("DM_CTL: scan %s: %zu places in %llu readable pages%s", k_types[t], g_n, (unsigned long long)pages, full ? " (stopped at the limit: search a rarer value)" : "");
++}
++
++// seq: v[0] here and v[k] k strides further on, within this page and the next (one window: (nv - 1) * max fits in a page)
++static void seq(int t, unsigned max, const double *v, int nv) {
++    g_n = 0; g_type = t; g_cols = 0; free(g_hist); g_hist = NULL;
++    unsigned w = (unsigned)width(t); uint64_t a, end; size_t shown = 0; int full = 0;
++    for (int r = 0; region(r, &a, &end) && !full; r++)
++        for (; a + PAGE <= end && !full; a += PAGE) {
++            if (!read_page(a)) continue; memcpy(g_win, g_page, PAGE);
++            unsigned lim = a + 2 * PAGE <= end && read_page(a + PAGE) ? 2 * PAGE : PAGE; memcpy(g_win + PAGE, g_page, PAGE);
++            for (unsigned i = 0; i + w <= PAGE && !full; i += w) {
++                if (!within(load(g_win + i, t), v[0], v[0], t)) continue;
++                for (unsigned s = w; s <= max; s += w) {
++                    int k = 1; while (k < nv && i + k * s + w <= lim && within(load(g_win + i + k * s, t), v[k], v[k], t)) k++;
++                    if (k < nv) continue;
++                    if (!keep(a + i, load(g_win + i, t))) { full = 1; break; }
++                    if (shown++ < 32) { char where[48]; name(a + i, where, sizeof where); LOG("DM_CTL: scan seq %#llx (%s) stride %#x", (unsigned long long)(a + i), where, s); }
++                    break;
++                }
++            }
++        }
++    LOG("DM_CTL: scan seq %s: %zu places%s", k_types[t], g_n, full ? " (stopped at the limit)" : "");
++}
++
++// Visits every place with its value now; keeps those for which pass() returns true (rec keeps all and writes the column)
++static void each(int (*pass)(size_t i, uint64_t v, const void *arg), const void *arg, const char *what) {
++    if (g_type < 0) { LOG("[RED] DM_CTL: scan: no search yet"); return; }
++    uint64_t page = UINT64_MAX; int ok = 0; size_t n = 0, before = g_n;
++    for (size_t i = 0; i < g_n; i++) {
++        uint64_t p = g_at[i] & ~(uint64_t)(PAGE - 1);
++        if (p != page) { page = p; ok = read_page(p); }
++        if (!ok) continue;
++        uint64_t v = load(g_page + (g_at[i] - p), g_type);
++        if (pass(i, v, arg)) { move_row(n, i); g_old[n++] = v; }
++    }
++    g_n = n;
++    LOG("DM_CTL: scan %s: %zu of %zu places kept", what, n, before);
++}
++static int f_eq(size_t i, uint64_t v, const void *a) { (void)i; const double *w = a; return within(v, w[0], w[0], g_type); }
++static int f_ne(size_t i, uint64_t v, const void *a) { return !f_eq(i, v, a); }
++static int f_changed(size_t i, uint64_t v, const void *a) { (void)a; return v != g_old[i]; }
++static int f_same(size_t i, uint64_t v, const void *a) { (void)a; return v == g_old[i]; }
++static int f_rec(size_t i, uint64_t v, const void *a) { (void)a; g_hist[i * COLS + g_cols] = small(v, g_type); return 1; }
++
++static void rec(void) {
++    if (g_type < 0) { LOG("[RED] DM_CTL: scan rec: no search yet"); return; }
++    if (g_cols == COLS) { LOG("[RED] DM_CTL: scan rec: all %d columns used (match, or start a new search)", COLS); return; }
++    if (!g_hist) { g_hist = calloc(g_cap ? g_cap : 1, COLS); if (!g_hist) die("scan: out of memory"); }
++    char what[32]; snprintf(what, sizeof what, "rec column %d", g_cols); each(f_rec, NULL, what); g_cols++;
++}
++
++// match: every term must hold for a place to stay
++static void match(const char *terms) {
++    if (!g_hist || !g_cols) { LOG("[RED] DM_CTL: scan match: nothing recorded (scan rec)"); return; }
++    int kind[16], c[16], d[16], nt = 0; char tok[32];
++    for (const char *s = terms; nt < 16 && sscanf(s, " %31s", tok) == 1; nt++) {
++        s = strstr(s, tok) + strlen(tok);
++        if (sscanf(tok, "%d<>%d", &c[nt], &d[nt]) == 2 && strstr(tok, "<>")) kind[nt] = 'd';
++        else if (sscanf(tok, "%d==%d", &c[nt], &d[nt]) == 2) kind[nt] = 's';
++        else if (sscanf(tok, "%d=%d", &c[nt], &d[nt]) == 2) kind[nt] = 'v';
++        else { LOG("[RED] DM_CTL: scan match: cannot read %s (c=v, c==d or c<>d)", tok); return; }
++        if (c[nt] < 0 || c[nt] >= g_cols || (kind[nt] != 'v' && (d[nt] < 0 || d[nt] >= g_cols))) { LOG("[RED] DM_CTL: scan match: no column in %s", tok); return; }
++    }
++    size_t n = 0, before = g_n;
++    for (size_t i = 0; i < g_n; i++) {
++        const uint8_t *h = g_hist + i * COLS; int ok = 1;
++        for (int t = 0; t < nt && ok; t++)
++            ok = kind[t] == 'v' ? h[c[t]] == d[t] : kind[t] == 's' ? h[c[t]] == h[d[t]] : h[c[t]] != h[d[t]];
++        if (ok) move_row(n++, i);
++    }
++    g_n = n;
++    LOG("DM_CTL: scan match: %zu of %zu places kept", n, before);
++}
++
++static void list(size_t max) {
++    for (size_t i = 0; i < g_n && i < max; i++) {
++        uint64_t v = g_old[i]; char h[COLS * 4 + 1] = "", *p = h, where[48];
++        for (int k = 0; g_hist && k < g_cols; k++) p += snprintf(p, (size_t)(h + sizeof h - p), "%s%u", k ? "," : "", g_hist[i * COLS + k]);
++        name(g_at[i], where, sizeof where);
++        LOG("DM_CTL: scan %#llx (%s): %g (%#llx)%s%s", (unsigned long long)g_at[i], where, num(v, g_type), (unsigned long long)v, *h ? " cols " : "", h);
++    }
++    LOG("DM_CTL: scan: %zu places%s", g_n, g_n > max ? " (more not listed)" : "");
++}
++
++void dm_ctl_scan(const char *args) {
++    char op[16] = {0}; double v[2] = {0}; unsigned long long a = 0, span = 0;
++    if (sscanf(args, "%15s", op) != 1) { LOG("[RED] DM_CTL: scan wants a type, = / != / changed / same / rec / match / ptr / ptr64 / list"); return; }
++    const char *rest = args + strlen(op);
++    for (int t = 0; t < T_PTR; t++) if (!strcmp(op, k_types[t])) {
++        int k = sscanf(rest, "%lf %lf", &v[0], &v[1]);
++        if (k < 1) { LOG("[RED] DM_CTL: scan %s wants a value", op); return; }
++        search(t, v[0], k == 2 ? v[1] : v[0]); return;
++    }
++    if (!strcmp(op, "ptr") || !strcmp(op, "ptr64")) {
++        int t = op[3] ? T_P64 : T_PTR;
++        if (sscanf(rest, "%llx %llx", &a, &span) != 2 || (t == T_PTR && a > UINT32_MAX)) { LOG("[RED] DM_CTL: scan %s wants an address and a span (hex)", op); return; }
++        search(t, (double)(a > span ? a - span : 0), (double)a); return;
++    }
++    if (!strcmp(op, "seq")) {
++        char ty[8]; unsigned max; int used, nv = 0; double sv[8];
++        if (sscanf(rest, " %7s %x%n", ty, &max, &used) != 2) { LOG("[RED] DM_CTL: scan seq wants a type, a max stride and values"); return; }
++        for (const char *q = rest + used; nv < 8 && sscanf(q, "%lf%n", &sv[nv], &used) == 1; q += used) nv++;
++        int t = -1; for (int k = 0; k < T_PTR; k++) t = strcmp(ty, k_types[k]) ? t : k;
++        if (t < 0 || nv < 2 || !max || (unsigned)(nv - 1) * max > PAGE) { LOG("[RED] DM_CTL: scan seq: a type, 2..8 values, and (values - 1) * max stride within %#x", PAGE); return; }
++        seq(t, max, sv, nv); return;
++    }
++    if (!strcmp(op, "=") || !strcmp(op, "!=")) {
++        if (sscanf(rest, "%lf", &v[0]) != 1) { LOG("[RED] DM_CTL: scan %s wants a value", op); return; }
++        each(op[0] == '=' ? f_eq : f_ne, v, op); return;
++    }
++    if (!strcmp(op, "changed")) { each(f_changed, NULL, op); return; }
++    if (!strcmp(op, "same")) { each(f_same, NULL, op); return; }
++    if (!strcmp(op, "rec")) { rec(); return; }
++    if (!strcmp(op, "match")) { match(rest); return; }
++    if (!strcmp(op, "list")) { long n = strtol(rest, NULL, 0); list(n > 0 ? (size_t)n : 32); return; }
++    LOG("[RED] DM_CTL: scan: unknown step %s", op);
++}
+diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
+index 42ff5fb..816cceb 100644
+--- a/dm/host/hle_svc.c
++++ b/dm/host/hle_svc.c
+@@ -28,6 +28,8 @@ static uint64_t *g_alias_exposed;   // one bit per host page ever opened; protec
+ static uint8_t *g_stack; static size_t g_stack_cap;
+ // The address lies in the guest address block (every guest thread stack is here: the game's own heap or the stack region); the big-stack entry (hle_bigstack.c) uses it to decide whether to switch stacks
+ int dm_guest_as_contains(uintptr_t a) { uintptr_t b = (uintptr_t)g_as; return g_as && a >= b && a - b < g_reserve; }
++void dm_guest_block(uint8_t **base, size_t *size) { *base = g_as; *size = g_reserve; }   // the whole block, for DM_CTL's memory search (hle_scan.c)
++void dm_guest_heap(uint8_t **base, size_t *size) { *base = g_heap; *size = g_heap_cur; }   // the heap's open part (the Wi-Fi controllers' race data, remote_race.c)
+ 
+ static void *alias_windows_thread(void *arg);
+ static void *regions_thread(void *arg);
 diff --git a/dm/host/kbd_map.h b/dm/host/kbd_map.h
 new file mode 100644
 index 0000000..5c901f3
@@ -723,15 +999,16 @@ index fa7058e..3dd6aa6 100644
      return p;
 diff --git a/dm/host/remote_feed.h b/dm/host/remote_feed.h
 new file mode 100644
-index 0000000..ca0315c
+index 0000000..6b8f666
 --- /dev/null
 +++ b/dm/host/remote_feed.h
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,124 @@
 +// Wi-Fi controllers (remote_proto.h): what goes to each streaming phone about the game, besides acks and rumble. Each is sent when it changes and renewed now and
 +// then, with a sequence number the phone orders them by (a lost one is replaced by the next):
 +//   info     the game's name and icon (size and CRC), what the game makes of the phone's player (rp_game), whether the game is reading it      every RP_INFO_MS
 +//   roster   who holds each player: "keyboard", a controller's name, a phone's own name                                                        every RP_ROSTER_MS
 +//   kbd      the game's keyboard is waiting for text (title, initial text, length), and "done" when one phone answered or the box closed     every RP_KBD_MS
++//   race     the course the player races on, their place, lap, coins, character and kart, items (rp_race; at most every RP_RACE_GAP_MS)  every RP_RACE_MS
 +// and, on request: iconpart, a piece of the icon (rp_icon_part), and the answer to the keyboard (rp_text_in).
 +#pragma once
 +#include "remote_session.h"
@@ -776,6 +1053,15 @@ index 0000000..ca0315c
 +    size_t k = n ? rp_out(out + n, cap - n, "}") : 0;
 +    return k ? n + k : 0;
 +}
++static size_t rp_race_msg(const rp_session *x, const rp_race *r, char *out, size_t cap) {
++    char crs[RP_COURSE + 1]; rp_text_clean(crs, sizeof crs, r->course, RP_COURSE, "");
++    size_t n = rp_out(out, cap, "{\"v\":1,\"t\":\"race\",\"sid\":\"%s\",\"cs\":%u,\"crs\":\"%s\"", x->sid, x->c_seq, crs), k;
++    if (n && r->has) n = (k = rp_out(out + n, cap - n, ",\"pos\":%d,\"lap\":%d,\"coin\":%d", r->place, r->lap, r->coins)) ? n + k : 0;
++    if (n && r->kart) n = (k = rp_out(out + n, cap - n, ",\"drv\":%d,\"body\":%d,\"tire\":%d,\"wing\":%d", r->drv, r->body, r->tire, r->wing)) ? n + k : 0;
++    if (n && r->items) n = (k = rp_out(out + n, cap - n, ",\"itm\":%d,\"itm2\":%d", r->item, r->item2)) ? n + k : 0;
++    k = n ? rp_out(out + n, cap - n, "}") : 0;
++    return k ? n + k : 0;
++}
 +static size_t rp_kbd_msg(const rp_server *s, const rp_session *x, int done, char *out, size_t cap) {
 +    if (done) return rp_out(out, cap, "{\"v\":1,\"t\":\"kbd\",\"sid\":\"%s\",\"ks\":%u,\"done\":1}", x->sid, x->k_sent);
 +    return rp_out(out, cap, "{\"v\":1,\"t\":\"kbd\",\"sid\":\"%s\",\"ks\":%u,\"max\":%d,\"title\":\"%s\",\"init\":\"%s\"}", x->sid, s->kbd.id, s->kbd.max,
@@ -798,6 +1084,16 @@ index 0000000..ca0315c
 +    if (names_key && k < max && (names_key != x->o_key || now - x->o_ns >= RP_ROSTER_MS * 1000000ull)) {
 +        x->o_key = names_key; x->o_ns = now; x->o_seq++;
 +        out[k].to = x->addr; out[k].n = rp_roster_msg(x, names, out[k].text, sizeof out[k].text); k++;
++    }
++    if (s->h.race && k < max) {
++        rp_race r; memset(&r, 0, sizeof r); s->h.race(s->h.ctx, x->player, &r);
++        r.course[RP_COURSE] = 0;
++        uint32_t key = rp_fnv(&r, sizeof r);
++        uint64_t since = now - x->c_ns;
++        if ((key != x->c_key && since >= RP_RACE_GAP_MS * 1000000ull) || since >= RP_RACE_MS * 1000000ull) {
++            x->c_key = key; x->c_ns = now; x->c_seq++;
++            out[k].to = x->addr; out[k].n = rp_race_msg(x, &r, out[k].text, sizeof out[k].text); k++;
++        }
 +    }
 +    if (k < max && s->kbd.active && (x->k_sent != s->kbd.id || now - x->k_ns >= RP_KBD_MS * 1000000ull)) {
 +        x->k_sent = s->kbd.id; x->k_ns = now; x->k_done = 0;
@@ -833,10 +1129,10 @@ index 0000000..ca0315c
 +}
 diff --git a/dm/host/remote_front.c b/dm/host/remote_front.c
 new file mode 100644
-index 0000000..cc52ffd
+index 0000000..61210d5
 --- /dev/null
 +++ b/dm/host/remote_front.c
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,85 @@
 +// Wi-Fi controllers on the Mac (remote_mac.c): the hooks the sessions (remote_proto.h) reach the front end's player slots, hid and haptics through, and the bridge from
 +// the game's keyboard (front_text_input) to the phones. The hooks run on the receiver's thread with rm_srv_mu held.
 +#include "dm.h"
@@ -893,12 +1189,19 @@ index 0000000..cc52ffd
 +    if (!out[0][0] && rm_input_on) snprintf(out[0], RP_NAME + 1, "keyboard");
 +}
 +
++// The race a player is in (remote_race.c): only for a player the game takes; a phone merged into player 1 races as player 1
++static void h_race(void *ctx, int p, rp_race *r) {
++    (void)ctx;
++    int u = dm_hid_player_use(p);
++    if (u) rm_race_read(u == 2 ? 0 : p, r);
++}
++
 +static void (*g_text_answer)(const char *text, int ok);
 +static void h_text(void *ctx, const char *text, int ok) { (void)ctx; if (g_text_answer) g_text_answer(text, ok); }
 +
 +void rm_hooks(rp_hooks *h) {
 +    *h = (rp_hooks){.take = h_take, .drop = h_drop, .set = h_set, .input_on = h_input_on, .say = h_say, .changed = h_changed, .random = h_random,
-+                    .rumble_route = h_route, .game = h_game, .names = h_names, .text = h_text};
++                    .rumble_route = h_route, .game = h_game, .names = h_names, .text = h_text, .race = h_race};
 +}
 +
 +void dm_remote_text_begin(const char *title, const char *initial, int max_chars, void (*answer)(const char *text, int ok)) {
@@ -1059,10 +1362,10 @@ index 0000000..e34abc4
 +static int rp_sid_ok(const char *s) { if (strlen(s) != 16) return 0; for (; *s; s++) if (!((*s >= '0' && *s <= '9') || (*s >= 'a' && *s <= 'f'))) return 0; return 1; }
 diff --git a/dm/host/remote_mac.c b/dm/host/remote_mac.c
 new file mode 100644
-index 0000000..c46ff22
+index 0000000..a16b091
 --- /dev/null
 +++ b/dm/host/remote_mac.c
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,142 @@
 +// Wi-Fi controllers on the Mac (remote_mac.h; protocol and sessions in remote_proto.h, docs/wifi-controllers.md): with DM_REMOTE=1 one IPv4 UDP socket and one thread take the
 +// phones' datagrams, polling every 20 ms for the session timers. Off by default: without DM_REMOTE=1 no socket is opened.
 +//   DM_REMOTE_PORT (default 47800; 0 = any free port, for tests), DM_REMOTE_BIND (the address to listen on, default every IPv4 address of this Mac),
@@ -1099,7 +1402,7 @@ index 0000000..c46ff22
 +}
 +static void *rx_main(void *arg) {
 +    (void)arg;
-+    char buf[1536], out[RP_MAX_PACKET]; static rp_reply rep[RP_SESSIONS * 5];   // an ack, a rumble, an info, a roster and a keyboard message per phone at most
++    char buf[1536], out[RP_MAX_PACKET]; static rp_reply rep[RP_SESSIONS * 6];   // an ack, a rumble, an info, a roster, a race and a keyboard message per phone at most
 +    while (!atomic_load(&g_stopped)) {
 +        struct pollfd pfd = {g_fd, POLLIN, 0};
 +        int r = poll(&pfd, 1, 20);
@@ -1158,6 +1461,7 @@ index 0000000..c46ff22
 +    rp_hooks h; rm_hooks(&h);
 +    rp_init(&rm_srv, code, (uint32_t)timeout, &h);
 +    rp_set_game(&rm_srv, DM_GAME_NAME);
++    rm_race_start();
 +    char icon_from[1024] = "";
 +    size_t icon_n = g_icon ? rm_srv.icon.n : rm_icon_load(&g_icon, icon_from, sizeof icon_from);
 +    rp_set_icon(&rm_srv, g_icon, icon_n);
@@ -1235,12 +1539,12 @@ index 0000000..a005860
 +void dm_remote_text_end(void);
 diff --git a/dm/host/remote_mac_int.h b/dm/host/remote_mac_int.h
 new file mode 100644
-index 0000000..d1e0b6f
+index 0000000..2826ea1
 --- /dev/null
 +++ b/dm/host/remote_mac_int.h
-@@ -0,0 +1,19 @@
-+// Wi-Fi controllers on the Mac: what remote_mac.c (the socket and its thread), remote_front.c (the hooks into the front end, hid, haptics and the game's keyboard) and
-+// remote_icon.c (the game card's icon) share. Not for other files: their interface is remote_mac.h.
+@@ -0,0 +1,22 @@
++// Wi-Fi controllers on the Mac: what remote_mac.c (the socket and its thread), remote_front.c (the hooks into the front end, hid, haptics and the game's keyboard),
++// remote_icon.c (the game card's icon) and remote_race.c (the course, place, lap and coins) share. Not for other files: their interface is remote_mac.h.
 +#pragma once
 +#include <pthread.h>
 +#include <stdatomic.h>
@@ -1257,6 +1561,9 @@ index 0000000..d1e0b6f
 +extern int (*rm_input_on)(void); extern void (*rm_changed)(void);
 +
 +void rm_hooks(rp_hooks *h);           // remote_front.c: the sessions' hooks
++void rm_race_start(void);             // remote_race.c: on a build with known race data, follows the courses the game opens
++void rm_race_read(int player, rp_race *r);   // the race that player is in now
++extern void (*dm_fs_opened)(const char *path);   // hle_fs.c: called with each path the game opens (NULL: nobody listens)
 +size_t rm_icon_load(unsigned char **out, char *from, size_t from_cap);   // remote_icon.c: the thumbnail (malloc'd; 0 = none) and the file it came from
 diff --git a/dm/host/remote_packet.h b/dm/host/remote_packet.h
 new file mode 100644
@@ -1433,6 +1740,153 @@ index 0000000..7039567
 +//   remote_packet.h   one datagram's effect         remote_tick.h     timers, quitting, the status line
 +#pragma once
 +#include "remote_tick.h"
+diff --git a/dm/host/remote_race.c b/dm/host/remote_race.c
+new file mode 100644
+index 0000000..119d16a
+--- /dev/null
++++ b/dm/host/remote_race.c
+@@ -0,0 +1,141 @@
++// Race data for the phones (rp_hooks.race, remote_front.c): the course from the files the game opens (hle_fs.c dm_fs_opened) and, on a game build whose racer objects are
++// known (k_race), a player's place, lap, coins, character and kart read from guest memory, and player 1's items. Fixed offsets: a row runs only on the main build it was
++// found on (nxnative AGENTS.md). The objects are found by their vtables: once a course opens, a thread searches the heap (a few tenths of a second over 3 GB) until the
++// racers' owner and a kart model for each racer are there, then the item box; each read checks the vtables, the racer count and the racer's index again, so freed or reused memory gives no
++// data rather than wrong data.
++#include "dm.h"
++#include "remote_mac.h"
++#include "remote_mac_int.h"
++#include <unistd.h>
++
++void dm_guest_heap(uint8_t **base, size_t *size);   // hle_svc.c
++int dm_guest_heap_readable(uint64_t a, size_t n);
++
++typedef struct {
++    const char *build, *course_dir, *menu;   // main's build ID; the folder each course's files are in; the course the menus load (no race)
++    uint64_t owner_vt, racer_vt;             // main offsets of the two classes' vtables
++    uint32_t count, list, index, place, lap, coins;   // owner: racer count (int32), racer pointer array; racer: its index, 0-based place and lap, coins (int32)
++    int max;                                 // racers at most
++    uint64_t model_vt; uint32_t drv, body, wing, tire;   // a kart's model (one per racer, made in racer order): the character, body, glider and tires (int32 ids)
++    uint64_t hud_vt; uint32_t state, item;   // the item box on the screen (one per local player): its two slots' states (3: holding) and items (int32 pairs)
++} race_row;
++static const race_row k_race[] = {
++    // Mario Kart 8 Deluxe 4.0.1 (v1507328): Course/<name>/ for each race, Gu_Menu behind the menus. One object of class main+0x125ada8 holds a sead::PtrArray of the racers
++    // at +0x60 (size) / +0x68 (pointers), player 1 first; a racer (class main+0x12cac28, 12 in a race) has its index at +0x38, its place at +0x40, its lap at +0x44 and its
++    // coins at +0x50. A kart model (class main+0x125a288, the files Driver/<name>.bfres, Kart/Body/… after it) has the character at +0x8, body +0x14, glider +0x18, tires
++    // +0x20, in the order of the game's part lists. The item box (class main+0x127e110, one object with one player) has the slots' states at +0x200 and their items at
++    // +0x210, ids the order of the u8 table at main+0xf21e7c (id → icon frame). Found with DM_CTL scan (hle_scan.c) against the screen (mando-nx docs/ingenieria_inversa.md)
++    {"2452c49bc26ec15904c507a34b6f16ae", "Course/", "Gu_Menu", 0x125ada8, 0x12cac28, 0x60, 0x68, 0x38, 0x40, 0x44, 0x50, 12,
++     0x125a288, 0x08, 0x14, 0x18, 0x20, 0x127e110, 0x200, 0x210},
++};
++static const race_row *g_row;
++static uint64_t g_main;
++static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
++static char g_course[RP_COURSE + 1];   // under g_mu
++enum { MODELS = 16 };
++static uint64_t g_model[MODELS], g_hud;   // under g_mu: the race's kart models in racer order (g_nmodel of them, 0 = unknown), the item box (0 = none, or one per player)
++static int g_nmodel;
++static _Atomic uint64_t g_owner;       // the racers' owner, 0 = not found (yet)
++static _Atomic uint32_t g_gen;         // bumped on each course change: a running search stops when it moves on
++
++static int rd(uint64_t a, void *out, size_t n) {
++    if (!dm_guest_heap_readable(a, n)) return 0;
++    memcpy(out, (const void *)(uintptr_t)a, n); return 1;
++}
++static uint64_t racer(uint64_t owner, int i) {   // racer i of owner, checked; 0 when it is not (or no longer) one
++    uint64_t vt = 0, list = 0, r = 0, rvt = 0; int32_t n = 0, idx = -1;
++    if (!rd(owner, &vt, 8) || vt != g_main + g_row->owner_vt) return 0;
++    if (!rd(owner + g_row->count, &n, 4) || n < 1 || n > g_row->max || i >= n) return 0;
++    if (!rd(owner + g_row->list, &list, 8) || !rd(list + 8 * (uint64_t)i, &r, 8)) return 0;
++    if (!rd(r, &rvt, 8) || rvt != g_main + g_row->racer_vt || !rd(r + g_row->index, &idx, 4) || idx != i) return 0;
++    return r;
++}
++// One pass over the heap: the racers' owner, the kart models (in address order, which is racer order) and the item boxes
++typedef struct { uint64_t owner, model[MODELS], hud; int nmodel, nhud; } found;
++static void find_all(found *f) {
++    uint8_t *b; size_t n; dm_guest_heap(&b, &n); memset(f, 0, sizeof *f);
++    const uint64_t ov = g_main + g_row->owner_vt, mv = g_main + g_row->model_vt, hv = g_main + g_row->hud_vt, *w = (const uint64_t *)(uintptr_t)b;
++    for (size_t i = 0; b && i < n / 8; i++) {
++        uint64_t a = (uint64_t)(uintptr_t)(w + i);
++        if (w[i] == ov && !f->owner && racer(a, 0)) f->owner = a;
++        else if (w[i] == mv) { if (f->nmodel < MODELS) f->model[f->nmodel] = a; f->nmodel++; }
++        else if (w[i] == hv) { f->hud = a; f->nhud++; }
++    }
++}
++// Until the course changes: the racers and their models (without the models after 10 s, the rest goes without), then the item boxes, which the game makes later
++static void *search_main(void *arg) {
++    uint32_t gen = (uint32_t)(uintptr_t)arg; found f; int racers = 0;
++    for (int t = 0; t < 120 && atomic_load(&g_gen) == gen; t++) {
++        find_all(&f);
++        int32_t n = 0; int ok = f.owner && rd(f.owner + g_row->count, &n, 4) && f.nmodel == n;
++        pthread_mutex_lock(&g_mu);
++        int now = atomic_load(&g_gen) == gen, pub = now && !racers && f.owner && (ok || t >= 20), hud = now && (racers || pub) && f.nhud;
++        if (pub) { g_nmodel = ok ? n : 0; memcpy(g_model, f.model, sizeof g_model); atomic_store(&g_owner, f.owner); }
++        if (hud) g_hud = f.nhud == 1 ? f.hud : 0;   // more than one: split screen, whose boxes are not told apart
++        pthread_mutex_unlock(&g_mu);
++        if (pub) { racers = 1; LOG("Wi-Fi controllers: the race's racers are at %#llx (main+%#llx's), %d kart models", (unsigned long long)f.owner,
++                                   (unsigned long long)g_row->owner_vt, f.nmodel); }
++        if (hud) { LOG("Wi-Fi controllers: %d item boxes%s", f.nhud, f.nhud == 1 ? " (player 1's items go to the phones)" : ", no items"); return NULL; }
++        usleep(500000);
++    }
++    if (atomic_load(&g_gen) == gen) LOG("Wi-Fi controllers: %s", racers ? "no item box found for this course" : "no racers found for this course (the race data stays off)");
++    return NULL;
++}
++
++// A file the game opened: a course folder other than the menus' starts a race (and the search for its racers); the menus' course ends it
++static void opened(const char *path) {
++    const char *p = strstr(path, ":/"); p = p ? p + 2 : path;
++    size_t k = strlen(g_row->course_dir);
++    if (strncmp(p, g_row->course_dir, k)) return;
++    p += k; const char *e = strchr(p, '/');
++    if (!e || e == p || e - p > RP_COURSE) return;
++    char name[RP_COURSE + 1]; memcpy(name, p, (size_t)(e - p)); name[e - p] = 0;
++    if (!strcmp(name, g_row->menu)) name[0] = 0;
++    pthread_mutex_lock(&g_mu);
++    int changed = strcmp(name, g_course) != 0;
++    if (changed) snprintf(g_course, sizeof g_course, "%s", name);
++    pthread_mutex_unlock(&g_mu);
++    if (!changed) return;
++    uint32_t gen = atomic_fetch_add(&g_gen, 1) + 1;
++    atomic_store(&g_owner, 0);
++    pthread_mutex_lock(&g_mu); g_nmodel = 0; g_hud = 0; pthread_mutex_unlock(&g_mu);
++    LOG("Wi-Fi controllers: course %s", name[0] ? name : "none (menus)");
++    pthread_t th;
++    if (name[0] && !pthread_create(&th, NULL, search_main, (void *)(uintptr_t)gen)) pthread_detach(th);
++}
++
++void rm_race_start(void) {
++    const char *b = dm_main_build();
++    for (size_t i = 0; i < sizeof k_race / sizeof k_race[0]; i++) if (!strcasecmp(b, k_race[i].build)) g_row = &k_race[i];
++    if (!g_row) return;
++    for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, "main")) g_main = (uint64_t)(uintptr_t)g_mod[i].base;
++    dm_fs_opened = opened;
++    LOG("Wi-Fi controllers: this build's courses and race data go to the phones (main %s)", b);
++}
++static void kart_of(uint64_t m, rp_race *r) {   // a kart model, checked: its vtable, and ids within the game's lists (none has 64 entries)
++    uint64_t vt = 0; int32_t v[4] = {-1, -1, -1, -1};
++    if (!m || !rd(m, &vt, 8) || vt != g_main + g_row->model_vt || !rd(m + g_row->drv, &v[0], 4) || !rd(m + g_row->body, &v[1], 4) || !rd(m + g_row->wing, &v[2], 4)
++        || !rd(m + g_row->tire, &v[3], 4)) return;
++    for (int i = 0; i < 4; i++) if (v[i] < 0 || v[i] > 63) return;
++    r->kart = 1; r->drv = v[0]; r->body = v[1]; r->wing = v[2]; r->tire = v[3];
++}
++static void items_of(uint64_t h, rp_race *r) {   // the item box: a slot it shows as held has its item; empty, or the roulette still turning, is -1
++    uint64_t vt = 0; int32_t st[2], it[2];
++    if (!h || !rd(h, &vt, 8) || vt != g_main + g_row->hud_vt || !rd(h + g_row->state, st, 8) || !rd(h + g_row->item, it, 8)) return;
++    for (int i = 0; i < 2; i++) { if (it[i] < -1 || it[i] > 63) return; if (st[i] != 3) it[i] = -1; }
++    r->items = 1; r->item = it[0]; r->item2 = it[1];
++}
++// The race player p is in: the course, and when the racers are known, that racer's place, lap, coins, character and kart; player 1's items when they play alone
++void rm_race_read(int p, rp_race *r) {
++    if (!g_row) return;
++    pthread_mutex_lock(&g_mu);
++    snprintf(r->course, sizeof r->course, "%s", g_course); uint64_t m = p >= 0 && p < g_nmodel ? g_model[p] : 0, h = p == 0 ? g_hud : 0;
++    pthread_mutex_unlock(&g_mu);
++    if (!r->course[0]) return;
++    kart_of(m, r); items_of(h, r);
++    uint64_t o = atomic_load(&g_owner), x = o ? racer(o, p) : 0;
++    int32_t place = -1, lap = -1, coins = -1;
++    if (!x || !rd(x + g_row->place, &place, 4) || !rd(x + g_row->lap, &lap, 4) || !rd(x + g_row->coins, &coins, 4)) return;
++    if (place < 0 || place >= g_row->max || lap < 0 || lap > 99 || coins < 0 || coins > 999) return;
++    r->has = 1; r->place = place + 1; r->lap = lap + 1; r->coins = coins;
++}
 diff --git a/dm/host/remote_session.h b/dm/host/remote_session.h
 new file mode 100644
 index 0000000..f3b9a13
@@ -1691,10 +2145,10 @@ index 0000000..8620226
 +}
 diff --git a/dm/host/remote_types.h b/dm/host/remote_types.h
 new file mode 100644
-index 0000000..df8e51f
+index 0000000..851c129
 --- /dev/null
 +++ b/dm/host/remote_types.h
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,95 @@
 +// Wi-Fi controllers (remote_proto.h, docs/wifi-controllers.md): the constants and types every part of the protocol shares. Pure: no socket, no clock, no globals.
 +#pragma once
 +#include <stdint.h>
@@ -1709,7 +2163,9 @@ index 0000000..df8e51f
 +enum { RP_VERSION = 1, RP_MAX_PACKET = 512, RP_PORT = 47800, RP_SESSIONS = DM_PLAYERS, RP_HZ = 60 };
 +enum { RP_HOLD_MS = 500, RP_TIMEOUT_MS = 5000, RP_ACK_MS = 250 };
 +enum { RP_RUMBLE_GAP_MS = 33, RP_RUMBLE_KEEP_MS = 100, RP_RUMBLE_HOLD_MS = 150 };   // at most 30 changes a second; renewed while on; each lasts this long unless renewed
-+enum { RP_INFO_MS = 2000, RP_ROSTER_MS = 3000, RP_KBD_MS = 1000 };   // info, roster and a keyboard request are renewed this often (a lost one is replaced)
++enum { RP_INFO_MS = 2000, RP_ROSTER_MS = 3000, RP_KBD_MS = 1000, RP_RACE_MS = 2000 };   // info, roster, a keyboard request and race are renewed this often (a lost one is replaced)
++enum { RP_RACE_GAP_MS = 100 };   // a race message that changed waits this long after the previous one
++enum { RP_COURSE = 24 };   // bytes: a course's name as the game files it
 +enum { RP_GAME_NAME = 48, RP_NAME = 24, RP_TEXT = 128, RP_ICON_CHUNK = 300 };   // bytes: the game's name, a player's name in the roster, typed text, icon data per datagram
 +enum { RP_FAIL_IPS = 16, RP_FAIL_PER_IP = 5, RP_FAIL_ALL = 30, RP_RATE = 250, RP_KICKS = 20 };   // wrong codes per minute (per address, all); packets per second per session; kicks per second
 +enum { RP_ERR = -1, RP_HELLO = 1, RP_STATE, RP_BYE, RP_TEXT_IN, RP_ICON_REQ };
@@ -1729,6 +2185,9 @@ index 0000000..df8e51f
 +// What the game makes of a player now. use: RP_USE_*; seats: the players the game takes (1-8); taken: bit p, player p + 1 has a controller; reading: the game read that
 +// player's npad (for RP_USE_P1, player 1's) in the last half second
 +typedef struct { int use, seats, reading; uint32_t taken; } rp_game;
++// The race a player is in (rp_hooks.race): course, the game's own name for it ("" none known); has: place, lap (1-based) and coins are known for this player;
++// kart: the game's ids of their character (drv), body, tires and glider (wing) are known; items: their two item slots are known (item, item2: the game's item id, -1 empty)
++typedef struct { int has, place, lap, coins, kart, drv, body, tire, wing, items, item, item2; char course[RP_COURSE + 1]; } rp_race;
 +typedef struct {
 +    int (*take)(void *ctx, const void *owner, const char *name);   // a player slot (0..DM_PLAYERS-1) for owner, -1 when none is free
 +    void (*drop)(void *ctx, const void *owner);   // owner's slot is free
@@ -1743,6 +2202,7 @@ index 0000000..df8e51f
 +    // who holds each player: "" nobody, "keyboard", a controller's name, or the slot name of a phone ("wifi:<id>", replaced by the phone's own name); NULL = no roster
 +    void (*names)(void *ctx, char out[DM_PLAYERS][RP_NAME + 1]);
 +    void (*text)(void *ctx, const char *text, int ok);   // a phone answered the game's keyboard (rp_kbd_begin); may be NULL
++    void (*race)(void *ctx, int player, rp_race *r);   // the race a player is in now; NULL = no race messages
 +} rp_hooks;
 +
 +typedef struct {
@@ -1763,6 +2223,8 @@ index 0000000..df8e51f
 +    uint64_t o_ns;
 +    uint32_t k_sent; int k_done;   // keyboard: the request last sent here, "done" messages still to send
 +    uint64_t k_ns;
++    uint32_t c_seq, c_key;     // race: the same
++    uint64_t c_ns;
 +} rp_session;
 +
 +typedef struct { uint32_t ip, fails; uint64_t last_ns; } rp_fail;
@@ -1783,10 +2245,10 @@ index 0000000..df8e51f
 +    rp_hooks h;
 +} rp_server;
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 872316b..2879a4f 100644
+index 872316b..4353d06 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -137,6 +137,24 @@ $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ..
+@@ -137,6 +137,27 @@ $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ..
  	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
  $(B)/t_hid: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
@@ -1794,9 +2256,10 @@ index 872316b..2879a4f 100644
 +REMOTE_H = ../remote_proto.h ../remote_types.h ../remote_json.h ../remote_text.h ../remote_session.h ../remote_feed.h ../remote_parse.h ../remote_packet.h ../remote_tick.h
 +REMOTE_MAC = ../remote_mac.c ../remote_front.c ../remote_icon.c
 +.PHONY: remote
-+remote: $(B)/t_remote $(B)/t_remote_feed $(B)/t_kbd_map $(B)/t_remote_udp
++remote: $(B)/t_remote $(B)/t_remote_feed $(B)/t_kbd_map $(B)/t_remote_udp $(B)/t_remote_race
 +	$(B)/t_remote
 +	$(B)/t_remote_feed
++	$(B)/t_remote_race
 +	$(B)/t_kbd_map
 +	$(B)/t_remote_udp $(QUIET)
 +run: remote
@@ -1806,6 +2269,8 @@ index 872316b..2879a4f 100644
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. -o $@ t_remote_feed.c
 +$(B)/t_kbd_map: t_kbd_map.c ../kbd_map.h ../dm_input.h | $(B)
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. -o $@ t_kbd_map.c
++$(B)/t_remote_race: t_remote_race.c ../remote_race.c ../remote_mac.h ../remote_mac_int.h $(REMOTE_H) ../dm.h $(GAME_H) | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_remote_race.c
 +$(B)/t_remote_udp: t_remote_udp.c $(REMOTE_MAC) ../remote_mac.h ../remote_mac_int.h $(REMOTE_H) ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
 +	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_remote_udp.c $(REMOTE_MAC) ../hle_haptics.c -framework ImageIO -framework CoreGraphics -framework CoreFoundation
  $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -2095,12 +2560,13 @@ index 0000000..3dab1dc
 +}
 diff --git a/dm/host/tests/t_remote_feed.c b/dm/host/tests/t_remote_feed.c
 new file mode 100644
-index 0000000..8bad2ad
+index 0000000..86e1b82
 --- /dev/null
 +++ b/dm/host/tests/t_remote_feed.c
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,142 @@
 +// Wi-Fi controllers (remote_feed.h): what each streaming phone is told about the game. info (on a change and every RP_INFO_MS, with reading and the icon's size and CRC),
-+// roster (who holds each player, phones by their names), the game's keyboard (asked until one phone answers, then "done" to every asked phone), pieces of the icon
++// roster (who holds each player, phones by their names), the game's keyboard (asked until one phone answers, then "done" to every asked phone), pieces of the icon,
++// race (the course, and place, lap, coins, character and kart, items when known: on a change at most every RP_RACE_GAP_MS, and every RP_RACE_MS)
 +#include "t_remote.h"
 +
 +static rp_game g_game = {.use = RP_USE_OWN, .seats = 4, .taken = 0x7};
@@ -2108,8 +2574,9 @@ index 0000000..8bad2ad
 +static void f_game(void *ctx, int p, rp_game *g) { (void)ctx; (void)p; *g = g_game; }
 +static void f_names(void *ctx, char o[DM_PLAYERS][RP_NAME + 1]) { (void)ctx; memcpy(o, g_names, sizeof g_names); }
 +static void f_text(void *ctx, const char *t, int ok) { (void)ctx; snprintf(g_text, sizeof g_text, "%s", t); g_text_ok = ok; g_texts++; }
-+static rp_reply rep[RP_SESSIONS * 4]; static int nrep;
-+static int tick(uint64_t now) { return nrep = rp_tick(&S, now, rep, RP_SESSIONS * 4); }
++static rp_reply rep[RP_SESSIONS * 6]; static int nrep;
++static int tick(uint64_t now) { return nrep = rp_tick(&S, now, rep, RP_SESSIONS * 6); }
++static rp_race g_race; static void f_race(void *ctx, int p, rp_race *r) { (void)ctx; (void)p; *r = g_race; }
 +static const char *find(const char *type, int nth) {   // the nth reply of that type in the last tick
 +    char want[32]; snprintf(want, sizeof want, "\"t\":\"%s\"", type);
 +    for (int i = 0; i < nrep; i++) if (strstr(rep[i].text, want) && !nth--) return rep[i].text;
@@ -2214,21 +2681,124 @@ index 0000000..8bad2ad
 +          "icon needs off, text needs ok");
 +}
 +
++static void t_race(void) {
++    char sid[17]; int p; uint64_t t = 1000 * MS;
++    start(); hello(A1, t, "482913", "phone-ana-1"); welcome(sid, &p); state(A1, t + MS, sid, 1, 0, 0, 0);
++    tick(t + 2 * MS); CHECK(!find("race", 0), "no race hook: no race messages");
++    S.h.race = f_race; memset(&g_race, 0, sizeof g_race); tick(t + 3 * MS); const char *r = find("race", 0);
++    CHECK(r && strstr(r, "\"cs\":1,\"crs\":\"\"}"), r ? r : "no race: the first says no course");
++    snprintf(g_race.course, sizeof g_race.course, "Gu_Water\"Park"); tick(t + 50 * MS); CHECK(!find("race", 0), "a change waits RP_RACE_GAP_MS");
++    tick(t + 103 * MS); r = find("race", 0); CHECK(r && strstr(r, "\"cs\":2,\"crs\":\"Gu_WaterPark\"}"), r ? r : "no race: the course, cleaned for JSON");
++    g_race.has = 1; g_race.place = 3; g_race.lap = 2; g_race.coins = 7; tick(t + 203 * MS); r = find("race", 0);
++    CHECK(r && strstr(r, "\"cs\":3,\"crs\":\"Gu_WaterPark\",\"pos\":3,\"lap\":2,\"coin\":7}"), r ? r : "no race: place, lap and coins");
++    tick(t + 1500 * MS); CHECK(!find("race", 0), "unchanged: nothing new within 2 s");
++    state(A1, t + 2100 * MS, sid, 2, 0, 0, 0); tick(t + 2204 * MS); r = find("race", 0); CHECK(r && strstr(r, "\"cs\":4,"), "renewed after 2 s");
++    g_race.kart = 1; g_race.drv = 40; g_race.body = 15; g_race.tire = 20; g_race.wing = 0; g_race.items = 1; g_race.item = 3; g_race.item2 = -1;
++    tick(t + 2400 * MS); r = find("race", 0);
++    CHECK(r && strstr(r, "\"coin\":7,\"drv\":40,\"body\":15,\"tire\":20,\"wing\":0,\"itm\":3,\"itm2\":-1}"), r ? r : "no race: character, kart and items");
++    rp_session x; memset(&x, 0, sizeof x); snprintf(x.sid, sizeof x.sid, "0123456789abcdef"); x.c_seq = 4294967295u;
++    rp_race w = {1, 12, 99, 999, 1, 63, 63, 63, 63, 1, 63, 63, ""}; memset(w.course, 'A', RP_COURSE); rp_reply rep;
++    size_t n = rp_race_msg(&x, &w, rep.text, sizeof rep.text); CHECK(n && n <= 200 && rep.text[n - 1] == '}', "the longest race message stays within 200 bytes");
++}
++
 +int main(void) {
-+    t_info(); t_roster(); t_keyboard(); t_icon();
++    t_info(); t_roster(); t_keyboard(); t_icon(); t_race();
 +    printf("t_remote_feed: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/host/tests/t_remote_race.c b/dm/host/tests/t_remote_race.c
+new file mode 100644
+index 0000000..c72781b
+--- /dev/null
++++ b/dm/host/tests/t_remote_race.c
+@@ -0,0 +1,77 @@
++// The phones' race data (remote_race.c) on a fake heap laid out as Mario Kart 8 Deluxe 4.0.1's: the course follows the files the game opens (a course folder starts a race,
++// the menus' backdrop ends it, other files change nothing), the racers' owner and the kart models are found by their vtables, a player reads their own racer's place, lap
++// and coins (1-based) and their kart, player 1 the items of the item box the game makes later (none with two boxes), and anything that does not check out (an unknown
++// build, a player past the racers, an index or vtable that is wrong, values out of range) gives no data.
++#include <time.h>
++#include "../remote_race.c"
++
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++module_t g_mod[MAX_MOD]; int g_nmod;
++void (*dm_fs_opened)(const char *path);
++static uint64_t g_heap[0x2000];   // 64 KB of fake guest heap
++void dm_guest_heap(uint8_t **base, size_t *size) { *base = (uint8_t *)g_heap; *size = sizeof g_heap; }
++int dm_guest_heap_readable(uint64_t a, size_t n) { uint64_t b = (uint64_t)(uintptr_t)g_heap; return a >= b && n <= sizeof g_heap && a - b <= sizeof g_heap - n; }
++
++enum { MAIN = 0x100000000ull, OWNER = 0x100, LIST = 0x200, RACERS = 0x400, STEP = 0x20, KARTS = 0x800, HUD = 0x1000 };   // word indexes into g_heap; a racer every 0x100 bytes
++enum { MSTEP = 0x10 };   // a kart model every 0x80 bytes
++static uint64_t at(int w) { return (uint64_t)(uintptr_t)&g_heap[w]; }
++static void put32(int w, uint32_t off, int32_t v) { memcpy((uint8_t *)&g_heap[w] + off, &v, 4); }
++static void build(int n) {
++    memset(g_heap, 0, sizeof g_heap);
++    g_heap[OWNER] = MAIN + 0x125ada8; put32(OWNER, 0x60, n); g_heap[OWNER + 0x68 / 8] = at(LIST);
++    for (int i = 0; i < n; i++) {
++        int r = RACERS + i * STEP; g_heap[LIST + i] = at(r); g_heap[r] = MAIN + 0x12cac28;
++        put32(r, 0x38, i); put32(r, 0x40, (i + 3) % n); put32(r, 0x44, 1); put32(r, 0x50, i);
++        int m = KARTS + i * MSTEP; g_heap[m] = MAIN + 0x125a288; put32(m, 0x8, 40 + i); put32(m, 0x14, 10 + i); put32(m, 0x18, i % 3); put32(m, 0x20, 20 - i);
++    }
++}
++static void hud(int w, int st1, int it1, int st2, int it2) { g_heap[w] = MAIN + 0x127e110; put32(w, 0x200, st1); put32(w, 0x210, it1); put32(w, 0x204, st2); put32(w, 0x214, it2); }
++static rp_race race_of(int p) { rp_race r; memset(&r, 0, sizeof r); rm_race_read(p, &r); return r; }
++static rp_race wait_for(int p, int items) {   // has (and items) once the search found them, within 3 s
++    rp_race r = race_of(p);
++    for (int i = 0; i < 300 && !(r.has && (!items || r.items)); i++) { struct timespec t = {0, 10000000}; nanosleep(&t, NULL); r = race_of(p); }
++    return r;
++}
++#define wait_has(p) wait_for(p, 0)
++
++int main(void) {
++    g_nmod = 1; snprintf(g_mod[0].name, sizeof g_mod[0].name, "main"); g_mod[0].base = (uint8_t *)(uintptr_t)MAIN;
++    snprintf(g_mod[0].build_id, sizeof g_mod[0].build_id, "0123456789abcdef0123456789abcdef");
++    rm_race_start(); CHECK(!dm_fs_opened && !race_of(0).course[0], "another build: no race data");
++    snprintf(g_mod[0].build_id, sizeof g_mod[0].build_id, "2452C49BC26EC15904C507A34B6F16AE");
++    rm_race_start(); CHECK(dm_fs_opened != NULL, "Mario Kart 8 Deluxe 4.0.1 (any case of the build ID): the host follows the files it opens");
++    build(12);
++    rp_race r = race_of(0); CHECK(!r.course[0] && !r.has, "before a course: nothing");
++    dm_fs_opened("content:/Audio/Driver/Driver_Yoshi.bars"); CHECK(!race_of(0).course[0], "another file changes nothing");
++    dm_fs_opened("content:/Course/Gu_WaterPark/course_model.szs");
++    r = wait_has(0);
++    CHECK(!strcmp(r.course, "Gu_WaterPark") && r.has && r.place == 4 && r.lap == 2 && r.coins == 0, "a course: player 1 is racer 0 (4th, lap 2, no coins)");
++    CHECK(r.kart && r.drv == 40 && r.body == 10 && r.wing == 0 && r.tire == 20 && !r.items, "player 1's kart is model 0; no item box yet: no items");
++    r = race_of(3); CHECK(r.has && r.place == 7 && r.coins == 3, "player 4 reads racer 3");
++    CHECK(r.kart && r.drv == 43 && r.body == 13 && r.wing == 0 && r.tire == 17, "and model 3");
++    hud(HUD, 3, 15, 0, 2); r = wait_for(0, 1); CHECK(r.items && r.item == 15 && r.item2 == -1, "the item box, made later: a coin held, the other slot empty");
++    CHECK(!race_of(1).items, "items for player 1 only");
++    put32(HUD, 0x200, 2); r = race_of(0); CHECK(r.items && r.item == -1, "the roulette still turning: empty");
++    put32(HUD, 0x200, 3); put32(HUD, 0x210, 99); CHECK(!race_of(0).items, "an item id out of range: no items");
++    put32(HUD, 0x210, 0); r = race_of(0); CHECK(r.items && r.item == 0, "a banana is item 0");
++    g_heap[KARTS + 2 * MSTEP] = MAIN + 8; CHECK(!race_of(2).kart && race_of(2).has, "a model with another vtable: no kart, the place stays");
++    g_heap[KARTS + 2 * MSTEP] = MAIN + 0x125a288; put32(KARTS + 2 * MSTEP, 0x14, 64); CHECK(!race_of(2).kart, "a part id out of range: no kart");
++    dm_fs_opened("content:/Course/Gu_WaterPark/course_kcl.szs"); CHECK(race_of(0).has, "more files of the same course keep the race");
++    r = race_of(12); CHECK(!strcmp(r.course, "Gu_WaterPark") && !r.has, "a player past the racers has the course only");
++    put32(RACERS + 2 * STEP, 0x38, 7); CHECK(!race_of(2).has, "a racer with another index: no data");
++    put32(RACERS + 2 * STEP, 0x38, 2); g_heap[RACERS + 2 * STEP] = MAIN + 8; CHECK(!race_of(2).has, "a racer with another vtable: no data");
++    g_heap[RACERS + 2 * STEP] = MAIN + 0x12cac28; put32(RACERS + 2 * STEP, 0x50, 5000); CHECK(!race_of(2).has, "coins out of range: no data");
++    put32(RACERS + 2 * STEP, 0x50, 2); CHECK(race_of(2).has, "and back");
++    put32(OWNER, 0x60, 40); CHECK(!race_of(0).has, "an owner with too many racers: no data");
++    put32(OWNER, 0x60, 12);
++    dm_fs_opened("content:/Course/Gu_Menu/course_model.szs"); r = race_of(0); CHECK(!r.course[0] && !r.has && !r.kart && !r.items, "the menus' course ends the race");
++    build(8); g_heap[OWNER] = 0; g_heap[OWNER + 0x400] = MAIN + 0x125ada8;   // the next race: the owner moved
++    put32(OWNER + 0x400, 0x60, 8); g_heap[OWNER + 0x400 + 0x68 / 8] = at(LIST); hud(HUD, 3, 1, 3, 2); hud(HUD + 0x100, 3, 4, 0, -1);
++    dm_fs_opened("content:/Course/Cnsw_11/course_model.szs");
++    r = wait_has(7); CHECK(!strcmp(r.course, "Cnsw_11") && r.has && r.place == 3 && r.kart && r.drv == 47, "the next course finds the owner again, eight racers and models");
++    CHECK(!race_of(0).items, "two item boxes (split screen): no items");
++    dm_fs_opened("content:/Course/" "A_folder_name_far_too_long_for_a_course/x"); CHECK(!strcmp(race_of(0).course, "Cnsw_11"), "a name too long is ignored");
++    printf("t_remote_race: %d checks, %d failed\n", checks, fails);
 +    return fails != 0;
 +}
 diff --git a/dm/host/tests/t_remote_udp.c b/dm/host/tests/t_remote_udp.c
 new file mode 100644
-index 0000000..f6f7f91
+index 0000000..94317be
 --- /dev/null
 +++ b/dm/host/tests/t_remote_udp.c
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,180 @@
 +// Wi-Fi controllers end to end on loopback: remote_mac.c's real socket and thread, the player slots shared with the keyboard (pad_slots.h) and what hle_hid.c reports on each
 +// npad. Three fake phones join Mario Kart's four players beside the keyboard (DM_KBD_PLAYER=own), a fourth is refused, a wrong code is refused, presses reach their own npads,
 +// an older seq is dropped, a silent phone is released and then loses its player, the rejoin gets it back, bye and the host's quit are sent; the game's feed (info with the game
-+// reading the npad and the icon made from a PNG, the roster, a piece of the icon, the game's keyboard answered by a phone). The host's log lines go to stderr.
++// reading the npad and the icon made from a PNG, the roster, a piece of the icon, the race, the game's keyboard answered by a phone). The host's log lines go to stderr.
 +#include <arpa/inet.h>
 +#include <netinet/in.h>
 +#include <poll.h>
@@ -2238,6 +2808,7 @@ index 0000000..f6f7f91
 +#include <unistd.h>
 +#include "../hle_hid.c"
 +#include "../remote_mac.h"
++#include "../remote_types.h"
 +#include <ImageIO/ImageIO.h>
 +#include <CoreGraphics/CoreGraphics.h>
 +
@@ -2263,6 +2834,11 @@ index 0000000..f6f7f91
 +void dm_ctl_cvar_f32(uint64_t off, float v) { (void)off; (void)v; }
 +void dm_gfx_texdump_next(const char *path) { (void)path; }
 +void dm_gfx_passdump_next(long n) { (void)n; }
++void dm_ctl_scan(const char *args) { (void)args; }
++void rm_race_start(void) {}   // remote_race.c has its own test (t_remote_race.c): here a race on Water Park, each player placed by number, lap 2, 5 coins, Yoshi
++void rm_race_read(int p, rp_race *r) {
++    snprintf(r->course, sizeof r->course, "Gu_WaterPark"); r->has = 1; r->place = p + 1; r->lap = 2; r->coins = 5; r->kart = 1; r->drv = 4; r->body = 14; r->tire = 20;
++}
 +
 +static pad_slots g_slots; static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER; static _Atomic int g_changes;
 +static void changed(void) { g_changes++; }
@@ -2347,6 +2923,8 @@ index 0000000..f6f7f91
 +    st(&a, DM_BTN_A, 1, 0); CHECK(rx(&a, "ack", m, sizeof m, 500) && strstr(m, "\"player\":2"), "the first state is acked with the player");
 +    CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"game\":\"" DM_GAME_NAME "\"") && strstr(m, "\"use\":\"own\"") && strstr(m, "\"seats\":4") && strstr(m, "\"taken\":15,"),
 +          "info: the game reads the phone's npad as its own player, four seats, players 1..4 held");
++    CHECK(rx(&a, "race", m, sizeof m, 100) && strstr(m, "\"crs\":\"Gu_WaterPark\",\"pos\":2,\"lap\":2,\"coin\":5,\"drv\":4,\"body\":14,\"tire\":20,\"wing\":0}"),
++          "race: player 2's course, place, lap, coins, character and kart");
 +    uint32_t one[] = {0, NPAD_HANDHELD}; h_hid_SetIds(one, 2); st(&a, DM_BTN_A, 1, 0);
 +    CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"use\":\"p1\"") && strstr(m, "\"seats\":1"), "a one-player screen: the phone is told it feeds player 1");
 +    h_hid_SetIds(mk8, 5); st(&a, DM_BTN_A, 1, 0); CHECK(rx(&a, "info", m, sizeof m, 500) && strstr(m, "\"use\":\"own\""), "back to four players");
@@ -2415,15 +2993,15 @@ index be773ea..1412e0a 100644
  dm/host/motion_fusion.h	hle:*SixAxisSensor*	six-axis motion mapping and orientation
 diff --git a/dm/tools/remote_phone.py b/dm/tools/remote_phone.py
 new file mode 100644
-index 0000000..1326d41
+index 0000000..53093e8
 --- /dev/null
 +++ b/dm/tools/remote_phone.py
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,99 @@
 +#!/usr/bin/env python3
 +"""Fake phones for the Wi-Fi controllers (docs/wifi-controllers.md): joins the host like dm/remote_pad does and sends whole states at 60 Hz, for checking a host without a phone.
 +  remote_phone.py --code 482913 [--host 127.0.0.1] [--port 47800] [--phones 3] [--seconds 10] [--press A] [--every 1.0]
 +Each phone presses --press for half of every --every seconds and tilts the left stick right meanwhile. One JSON line per event on stdout (join, welcome, reject, ack counts, kick,
-+bye, info and roster when what they say changes); exit 0 when every phone got a player and acks, 1 otherwise. Standard library only."""
++bye, info, roster and race when what they say changes); exit 0 when every phone got a player and acks, 1 otherwise. Standard library only."""
 +import argparse
 +import json
 +import secrets
@@ -2449,6 +3027,7 @@ index 0000000..1326d41
 +        self.sid, self.player, self.seq, self.acks, self.last_hello, self.reject = None, None, 0, 0, 0.0, None
 +        self.info = None   # what the host's last info said: game, use, seats, taken, rd, isz
 +        self.roster = None   # who holds each player, as the host's last roster said
++        self.race = None   # the course, place, lap, coins, character and kart, items, as the host's last race said
 +
 +    def send(self, **m):
 +        self.sock.sendto(json.dumps(dict(v=1, **m), separators=(',', ':')).encode(), self.addr)
@@ -2477,6 +3056,9 @@ index 0000000..1326d41
 +        elif t == 'roster' and m.get('sid') == self.sid:
 +            names = {k: v for k, v in m.items() if k[:1] == 'n' and k[1:].isdigit()}
 +            if names != self.roster: self.roster = names; say(ev='roster', phone=self.n, **names)
++        elif t == 'race' and m.get('sid') == self.sid:
++            race = {k: m.get(k) for k in ('crs', 'pos', 'lap', 'coin', 'drv', 'body', 'tire', 'wing', 'itm', 'itm2')}
++            if race != self.race: self.race = race; say(ev='race', phone=self.n, **race)
 +        elif t == 'reject': self.reject = m.get('reason'); say(ev='reject', phone=self.n, reason=self.reject)
 +        elif t == 'kick': self.sid = None; say(ev='kick', phone=self.n, reason=m.get('reason')); self.hello()
 +        elif t == 'bye': say(ev='bye', phone=self.n, reason=m.get('reason')); self.sid = None
@@ -2528,9 +3110,18 @@ index 6b414eb..a7202d3 100644
  | Known gaps | Conditional render is always drawn; `MultiDraw*IndirectCount` waits on the CPU for the GPU-written count; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. The bundled prewarm lists are empty. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 901c65a..312cead 100644
+index 901c65a..ebcdd31 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
+@@ -14,7 +14,7 @@ DM_BOOTPROF	diagnostic	When set, logs boot timing: the loader's breakdown (mappi
+ DM_BUNDLE_ID	switch	Overrides the iOS app's bundle ID in `build_ipa.sh` (default `org.nxnative.<title ID in lowercase>`)
+ DM_COPY_GAME_RESOURCES	switch	`NO` skips the Xcode build phase that copies the game's resources into the app (`stage_resources.sh`, on by default); `build_ipa.sh` sets it for its unsigned build, which packs them itself
+ DM_COPY_ROMFS	switch	`NO` keeps the game files out of the app in the Xcode build phase (`stage_resources.sh`, on by default): `main.m` takes the validated `Documents/romfs.img` copied by `scripts/push_romfs.sh`, then a `Documents/romfs` folder
+-DM_CTL	diagnostic	`=<file>` (Mac): the host polls the file every 100 ms and runs each appended line: button presses, `shot`, `passdump`, `texdump`, `env KEY=VALUE`, `peek`, `memdump`, `drag` and more
++DM_CTL	diagnostic	`=<file>` (Mac): the host polls the file every 100 ms and runs each appended line: button presses, `shot`, `passdump`, `texdump`, `env KEY=VALUE`, `peek`, `memdump`, `scan` (a memory search for a value the game shows, `hle_scan.c`), `drag` and more
+ DM_DBG	diagnostic	When set, prints the guest's `svcOutputDebugString` text to stderr as `[guest]` lines
+ DM_DBG_AU_FRAMES	diagnostic	`=<frames>` asks the Mac's Core Audio output for that many frames per callback instead of about 5 ms (1024 reproduces the iOS default that caused crackling)
+ DM_DETCLOCK	switch	`=<step ns>`: from the first present on, the guest clock advances a fixed step per present instead of following the wall clock, and the random source becomes a fixed-seed stream (replay and test runs)
 @@ -53,6 +53,7 @@ DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how
  DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
@@ -2556,10 +3147,10 @@ index 901c65a..312cead 100644
  DM_RESOURCE_CHAIN_H	path	Path of `dm/gfx/nvn/dmsh_chain.h`, written to `Gen/resources.env` by `build_ipa.sh`; the Xcode copy phase (`stage_resources.sh`) stops when the prepared shaders are not of its chain version
 diff --git a/docs/wifi-controllers.md b/docs/wifi-controllers.md
 new file mode 100644
-index 0000000..f96d729
+index 0000000..1c2b159
 --- /dev/null
 +++ b/docs/wifi-controllers.md
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,133 @@
 +# Wi-Fi controllers and the Mac keyboard map
 +
 +On the Mac host, phones can be controllers over the local network, each one a player of its own, beside the keyboard and physical controllers: local multiplayer such as Mario Kart 8 Deluxe's four-player split screen with the keyboard as player 1 and three phones. The phone app is [dm/remote_pad](../dm/remote_pad/README.md) (Flutter, iOS and Android, Spanish interface). The keyboard's keys can be changed in a window of the game and are kept between runs.
@@ -2629,12 +3220,13 @@ index 0000000..f96d729
 +| `roster` | `sid`, `rs` (ordered like `is`), `n1`…`n8` (who holds each player, only those held: `keyboard`, a controller's name, a phone's own name; at most 24 bytes) | once the phone streams, then on a change and every 3 s |
 +| `kbd` | `sid`, `ks` (the request), `max` (characters), `title`, `init` (the text it starts with); or `sid`, `ks`, `done` (1) | the game's keyboard is up on the Mac (every second until a phone answers); `done` when it was answered (by any phone or on the Mac) or closed, twice |
 +| `iconpart` | `sid`, `ih`, `off`, `d` (base64 of up to 300 bytes from `off`) | the answer to `icon` |
++| `race` | `sid`, `cs` (ordered like `is`), `crs` (the course as the game files it, as `Gu_WaterPark`; empty in the menus or when unknown), and when known `pos` (place, 1 first), `lap` (1 first), `coin`; `drv`, `body`, `tire`, `wing` (the game's ids for the character and the kart's body, tires and glider, 0–63); `itm`, `itm2` (the item in each of the two slots, the game's item id, −1 empty) | on a game build with race data (below): once the phone streams, then on a change (at most every 100 ms) and every 2 s |
 +
-+`info.use` is what the game makes of the phone's player, from the npads it supports (`SetSupportedNpadIdType`, `hle_hid.c` `dm_hid_player_use`): `own` (the game reads that player's npad itself), `p1` (a one-player screen: the controller feeds player 1, as every controller does there), `off` (the game takes fewer players now: not used), `pause` (the game window is not key: released). `seats` is how many players the game takes now (Mario Kart 8 Deluxe: 4 for local play). These are general: nothing is read from a game's memory, so they hold for every game; a character, a kart or a race position would need per-game, per-build knowledge. `rd` counts the game's own `GetNpadStates` / `GetNpadState` calls on that player's npad (`hle_hid.c` `dm_hid_reads`; player 1's for a phone a one-player screen merges into it). The icon is a JPEG thumbnail, at most 128 pixels a side (`remote_icon.c`, ImageIO), of `icon.jpg` beside the RomFS image (`DM_ROMFS`) or of `DM_REMOTE_ICON`. The game's keyboard (`hle_swkbd.c` → `front_text_input` in `front_mac.m`) asks every phone while its box is up; the first answer, from a phone or typed on the Mac, wins, and a phone's fills the box and closes it.
++`info.use` is what the game makes of the phone's player, from the npads it supports (`SetSupportedNpadIdType`, `hle_hid.c` `dm_hid_player_use`): `own` (the game reads that player's npad itself), `p1` (a one-player screen: the controller feeds player 1, as every controller does there), `off` (the game takes fewer players now: not used), `pause` (the game window is not key: released). `seats` is how many players the game takes now (Mario Kart 8 Deluxe: 4 for local play). These are general: nothing is read from a game's memory, so they hold for every game. `race` is the exception, and only on a game build listed in `remote_race.c`'s `k_race` (gated by main's build ID): the course is the folder of the course files the game opens (`hle_fs.c` `dm_fs_opened`), and place, lap and coins are read from the racer the player drives, the character and kart from that racer's kart model, found by their classes' vtables and checked on every read (Mario Kart 8 Deluxe 4.0.1: player n is racer n − 1; a phone a one-player screen merges into player 1 races as player 1). The items come from the item box on the screen, so only player 1 gets them, and only while the game shows one box (one player on the Mac); a slot whose roulette still turns counts as empty. The ids are the game's own: the order of its character and part lists (`drv` 0 Mario … 40 King Boo … 52; `body` 0 Standard Kart, 14 Standard Bike, 15 Comet…; `tire` 20 Leaf; `wing` 0 Super Glider) and of its item ids (0 banana, 1 green shell, 2 red shell, 3 mushroom … 15 coin … 22 Boo; the table from an id to the item box's icon is at main+0xf21e7c). The phone has the names. Other builds send no `race`. `rd` counts the game's own `GetNpadStates` / `GetNpadState` calls on that player's npad (`hle_hid.c` `dm_hid_reads`; player 1's for a phone a one-player screen merges into it). The icon is a JPEG thumbnail, at most 128 pixels a side (`remote_icon.c`, ImageIO), of `icon.jpg` beside the RomFS image (`DM_ROMFS`) or of `DM_REMOTE_ICON`. The game's keyboard (`hle_swkbd.c` → `front_text_input` in `front_mac.m`) asks every phone while its box is up; the first answer, from a phone or typed on the Mac, wins, and a phone's fills the box and closes it.
 +
 +Ordering: the host takes a state only when its `seq` is newer than the last one taken (serial number arithmetic, so 0 follows 2³²−1); a late or repeated datagram is dropped, and a lost one is replaced by the next, which carries the whole state. The first state of a session is taken whatever its `seq`. Sticks: each axis is clamped to −1..1, then the pair to the unit circle, then scaled to ±32767; the app applies a 12 % dead zone before sending. The phone counts the host as gone after 2 s without an ack (it keeps sending and says hello again every second); after a `bye` with reason `host` it keeps trying every 2 s, so it joins again when the game is started again.
 +
-+Host side: `dm/host/remote_proto.h` and its parts (`remote_types.h`, `remote_json.h`, `remote_text.h`, `remote_session.h`, `remote_feed.h`, `remote_parse.h`, `remote_packet.h`, `remote_tick.h`: parsing, validation, sessions, the game's feed; no socket), `dm/host/remote_mac.c` (socket and thread), `remote_front.c` (the hooks into the slots, hid, haptics and the game's keyboard), `remote_icon.c` (the icon's thumbnail). Phone side: `dm/remote_pad/lib/protocol/` and `lib/net/`.
++Host side: `dm/host/remote_proto.h` and its parts (`remote_types.h`, `remote_json.h`, `remote_text.h`, `remote_session.h`, `remote_feed.h`, `remote_parse.h`, `remote_packet.h`, `remote_tick.h`: parsing, validation, sessions, the game's feed; no socket), `dm/host/remote_mac.c` (socket and thread), `remote_front.c` (the hooks into the slots, hid, haptics and the game's keyboard), `remote_icon.c` (the icon's thumbnail), `remote_race.c` (the course, place, lap, coins, character, kart and items). Phone side: `dm/remote_pad/lib/protocol/` and `lib/net/`.
 +
 +## Security
 +
@@ -2663,13 +3255,13 @@ index 0000000..f96d729
 +
 +## Tests
 +
-+- `make -C dm/host/tests GAME=<id> remote` (also part of `run`): `t_remote` (parsing, validation, sticks, seq, sessions over a slot table shared with controllers: codes and their limit, players, release, timeout, rejoin, focus, bye, eight players), `t_remote_feed` (info with reading and the icon, roster, the game's keyboard asked and answered, icon pieces, base64 and CRC), `t_kbd_map` (the built-in map is the old fixed one, files, round trip, modifiers), `t_remote_udp` (real datagrams on loopback through `remote_mac.c`'s thread to the npads `hle_hid.c` reports: three phones beside the keyboard in a four-player game; the feed: reading, roster, the icon made from a PNG, the keyboard answered by a phone).
++- `make -C dm/host/tests GAME=<id> remote` (also part of `run`): `t_remote` (parsing, validation, sticks, seq, sessions over a slot table shared with controllers: codes and their limit, players, release, timeout, rejoin, focus, bye, eight players), `t_remote_feed` (info with reading and the icon, roster, the game's keyboard asked and answered, icon pieces, base64 and CRC, race and its pace), `t_remote_race` (the course from the files opened, the racers, kart models and item boxes found by vtable on a fake heap, every check that turns data off), `t_kbd_map` (the built-in map is the old fixed one, files, round trip, modifiers), `t_remote_udp` (real datagrams on loopback through `remote_mac.c`'s thread to the npads `hle_hid.c` reports: three phones beside the keyboard in a four-player game; the feed: reading, roster, the icon made from a PNG, race, the keyboard answered by a phone).
 +- `cd dm/remote_pad && flutter analyze && flutter test`: the protocol, the client's join / heartbeat / seq / rejoin / pause on a fake clock and over a loopback socket, the layout on five screen sizes, multi-touch routing, the screens.
 +
 +## Limits
 +
 +- IPv4 only; QR or manual address entry; automatic discovery is not implemented.
-+- `info` says what the game's controller setup makes of a player, not what happens inside the game: no character, kart, place or lap (see `info` under [Protocol](#protocol)).
++- `info` says what the game's controller setup makes of a player, not what happens inside the game. Only `race` comes from inside a game, for the builds `remote_race.c` knows: Mario Kart 8 Deluxe 4.0.1, whose racer order was checked with one player only (that player 2 is racer 1 in split screen is assumed). Items only for player 1 playing alone: with two or more players on the Mac the game draws an item box each, and which is whose is not known.
 +- The phone gamepad has no right stick or stick presses; `rx`/`ry` stay 0. Tilt steering changes the left stick. Physical sensor and haptic feel need device testing.
 +- The app is not tested on phones here; installing it needs the developer's own signing (iOS) or a debug build (Android): see [dm/remote_pad](../dm/remote_pad/README.md).
 +
@@ -2687,7 +3279,7 @@ index 0000000..f96d729
 +
 +### Game card
 +
-+From the host's `info`, the pad shows a card in its middle: the game's name, a light per player the game takes (the phone's own in its player colour, glowing while the game reads it; other players with a controller filled), and a line saying what the game makes of the phone: **El juego lee tu mando como Jugador N**, a one-player screen where it also moves player 1, a game taking fewer players (the phone waits), or a pause while the game window on the Mac is not in front. The phone gives a short vibration when the game takes its controller. The offline demo shows the card with a demo game.
++From the host's `info`, the pad shows a card in its middle: the game's name, a light per player the game takes (the phone's own in its player colour, glowing while the game reads it; other players with a controller filled), and a line saying what the game makes of the phone: **El juego lee tu mando como Jugador N**, a one-player screen where it also moves player 1, a game taking fewer players (the phone waits), or a pause while the game window on the Mac is not in front. The phone gives a short vibration when the game takes its controller. In a race (`race`), the card also shows the course by its Spanish name, the place, the lap and the coins, and below them the character, the kart (body, tires, glider) and the items held, by the names the game shows in Spanish (the items, which the game shows only as icons, by their usual Spanish names). The offline demo shows the card with a demo game.
 +
 +### Visible motion switch
 +

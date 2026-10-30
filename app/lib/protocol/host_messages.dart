@@ -1,4 +1,5 @@
-// What the host sends: the session's own messages (welcome, ack, reject, kick, bye), game rumble, and the game's feed (info, roster, the game's keyboard, icon pieces).
+// What the host sends: the session's own messages (welcome, ack, reject, kick, bye), game rumble, and the game's feed (info, roster, race, the game's keyboard,
+// icon pieces).
 import 'dart:typed_data';
 
 sealed class HostMessage {
@@ -73,6 +74,32 @@ class Roster extends HostMessage {
   final String sid;
   final int seq;
   final Map<int, String> names;
+}
+
+/// race: the course this player races on, as the game files it ("Gu_WaterPark"; empty in the menus or when unknown) and, when known, their place and lap (both from 1)
+/// and coins, their character and kart, their items. Only from a game build the host knows; seq orders them.
+class RaceInfo extends HostMessage {
+  const RaceInfo(
+    this.sid,
+    this.seq,
+    this.course, {
+    this.place,
+    this.lap,
+    this.coins,
+    this.driver,
+    this.body,
+    this.tires,
+    this.glider,
+    this.item,
+    this.item2,
+  });
+  final String sid, course;
+  final int seq;
+  final int? place, lap, coins;
+  final int? driver, body, tires, glider; // the game's ids for the character and the kart's parts (games/mk8_*.dart)
+  final int? item, item2; // the two item slots: the game's item id, -1 empty; null when not known
+  bool get racing => place != null;
+  bool get hasKart => driver != null;
 }
 
 /// kbd: the game's keyboard waits for text (title, initial text, at most max characters), or (done) the request id is over: answered or closed on the Mac.

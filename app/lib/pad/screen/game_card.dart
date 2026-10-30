@@ -1,18 +1,26 @@
 // The game card in the middle of the pad: the game's icon and name; a light per player the game takes, with who holds it (this phone's in its colour, glowing while
-// the game reads it); what the game makes of this player, with a dot that beats while the game is reading this controller.
+// the game reads it); what the game makes of this player, with a dot that beats while the game is reading this controller; in a race, the race line.
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../../gamer_theme.dart';
 import '../../protocol.dart';
+import 'race_line.dart';
 import 'reading_dot.dart';
 import 'status.dart';
 
 class GameCard extends StatelessWidget {
-  const GameCard({super.key, required this.info, this.roster, this.icon});
+  const GameCard({
+    super.key,
+    required this.info,
+    this.roster,
+    this.icon,
+    this.race,
+  });
   final GameInfo info;
   final Roster? roster;
+  final RaceInfo? race;
   final Uint8List? icon;
 
   @override
@@ -77,6 +85,10 @@ class GameCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (race != null) ...[
+                const SizedBox(height: 4),
+                RaceLine(race: race!),
+              ],
             ],
           ),
         ),

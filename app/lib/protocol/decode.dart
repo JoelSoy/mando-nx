@@ -5,6 +5,7 @@ import 'encode.dart';
 import 'host_messages.dart';
 
 final _sidRe = RegExp(r'^[0-9a-f]{16}$'), _hashRe = RegExp(r'^[0-9a-f]{8}$');
+final _courseRe = RegExp(r'^[A-Za-z0-9_]{0,24}$');
 
 HostMessage? decodeHostMessage(List<int> bytes) {
   if (bytes.isEmpty || bytes.length > maxPacket) return null;
@@ -74,6 +75,32 @@ HostMessage? _decode(_Fields f) {
         for (var p = 1; p <= 8; p++)
           if (f.str('n$p', 32).isNotEmpty) p: f.str('n$p', 32),
       });
+    case 'race':
+      final seq = f.int_('cs', 0, 0xffffffff), crs = f.j['crs'];
+      if (sid == null || seq == null || crs is! String) return null;
+      if (!_courseRe.hasMatch(crs)) return null;
+      final pos = f.int_('pos', 1, 99), lap = f.int_('lap', 1, 99);
+      final coins = f.int_('coin', 0, 999);
+      final known = pos != null && lap != null && coins != null;
+      final drv = f.int_('drv', 0, 63), body = f.int_('body', 0, 63);
+      final tire = f.int_('tire', 0, 63), wing = f.int_('wing', 0, 63);
+      final kart = drv != null && body != null && tire != null && wing != null;
+      final itm = f.int_('itm', -1, 63), itm2 = f.int_('itm2', -1, 63);
+      final items = itm != null && itm2 != null;
+      return RaceInfo(
+        sid,
+        seq,
+        crs,
+        place: known ? pos : null,
+        lap: known ? lap : null,
+        coins: known ? coins : null,
+        driver: kart ? drv : null,
+        body: kart ? body : null,
+        tires: kart ? tire : null,
+        glider: kart ? wing : null,
+        item: items ? itm : null,
+        item2: items ? itm2 : null,
+      );
     case 'kbd':
       final id = f.int_('ks', 0, 0xffffffff);
       if (sid == null || id == null) return null;
