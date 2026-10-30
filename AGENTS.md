@@ -6,7 +6,7 @@ Mando NX makes phones into Wi-Fi controllers for Nintendo Switch games that [nxn
 - a patch to nxnative's Mac host (`host/nxnative.patch`, made for the nxnative commit in `host/NXNATIVE_COMMIT`);
 - the scripts that put it together (`scripts/`).
 
-nxnative is not in this repository: `scripts/setup_nxnative.sh` clones it, applies the patch and links `app/` into it as `dm/remote_pad`. The user-facing docs are in Spanish (`README.md`, `docs/*.md`). Code, code comments, log lines and this file are in English.
+nxnative is not in this repository: `scripts/setup_nxnative.sh` clones it, applies the patch and links `app/` into it as `dm/remote_pad`. `README.md` is in English; the user guides (`docs/*.md`) and the app's UI are in Spanish. Code, code comments, log lines and this file are in English.
 
 ## Map
 
@@ -71,7 +71,7 @@ The patch is pinned because it touches files that upstream keeps changing (`fron
 2. Apply the patch: `git apply --3way /path/to/mando-nx/host/nxnative.patch`. Resolve the conflicts in favour of upstream's current code, then re-add our hunks. Check by reading the code that the hooks still fit: `pad_slots`, `dm_pad_players`, `SetSupportedNpadIdType`, haptics.
 3. Run `make -C dm/host GAME=<id> dmhost` and `make -C dm/host/tests GAME=<id> remote`. Then copy the host into a build folder (`scripts/build_host.sh`) and run `scripts/smoke_host.sh`.
 4. Run `scripts/export_patch.sh --nxnative <that checkout> --commit <new upstream commit>`. It rewrites both `host/nxnative.patch` and `host/NXNATIVE_COMMIT`.
-5. Run `scripts/check.sh`, and in `README.md` (Estado) update which commit the patch is for.
+5. Run `scripts/check.sh`, and in `README.md` (Status) update which commit the patch is for.
 
 ## Open
 
